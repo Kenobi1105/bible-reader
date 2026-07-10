@@ -144,9 +144,7 @@ function renderReferenceBrowser() {
   const pane = activePane();
   const selectedBook = state.browseBook || pane.reference.book;
   const selectedChapter = state.browseChapter || pane.reference.chapter;
-  const activeBookIndex = BOOKS.findIndex(([book]) => book === selectedBook);
   const booksPerRow = 9;
-  const initialBookCount = state.browseStage === "books" ? BOOKS.length : Math.ceil((activeBookIndex + 1) / booksPerRow) * booksPerRow;
   const shortNames = {
     "Genesis": "Gn", "Exodus": "Ex", "Leviticus": "Lv", "Numbers": "Nm", "Deuteronomy": "Dt", "Joshua": "Jo", "Judges": "Jgs", "Ruth": "Ru",
     "1 Samuel": "1 Sm", "2 Samuel": "2 Sm", "1 Kings": "1 Kgs", "2 Kings": "2 Kgs", "1 Chronicles": "1 Ch", "2 Chronicles": "2 Ch",
@@ -168,18 +166,23 @@ function renderReferenceBrowser() {
   const verses = Array.from({ length: 176 }, (_, index) => index + 1).map((verse) =>
     '<button class="number-chip ' + (verse === Number(pane.reference.verse) ? "selected" : "") + '" data-browse-verse="' + verse + '">' + verse + "</button>"
   ).join("");
-  const chapterPanel = state.browseStage === "chapters"
-    ? '<section class="browse-reveal"><div class="reveal-title"><strong>' + escapeHtml(selectedBook) + "</strong><button data-browse-back=\"books\" title=\"Close chapter picker\">" + icon("x") + "</button></div><div class=\"chapter-grid\">" + chapters + "</div></section>"
-    : state.browseStage === "verses"
-      ? '<section class="browse-reveal split-reveal"><div class="reveal-column"><div class="reveal-title"><strong>' + escapeHtml(selectedBook) + "</strong><button data-browse-back=\"books\" title=\"Close passage picker\">" + icon("x") + "</button></div><div class=\"chapter-grid\">" + chapters + "</div></div><div class=\"reveal-column verse-column\"><div class=\"reveal-title\"><strong>Verse</strong></div><div class=\"chapter-grid verse-grid\">" + verses + "</div></div></section>"
-      : "";
+  const chapterPanel = state.browseStage === "books" ? "" :
+    '<section class="browse-reveal split-reveal"><div class="reveal-column"><div class="reveal-title"><strong>' + escapeHtml(selectedBook) + "</strong><button data-browse-back=\"books\" title=\"Close passage picker\">" + icon("x") + "</button></div><div class=\"chapter-grid\">" + chapters + "</div></div><div class=\"reveal-column verse-column\">" +
+      (state.browseStage === "verses"
+        ? '<div class="reveal-title"><strong>Verse</strong></div><div class="chapter-grid verse-grid">' + verses + "</div>"
+        : '<div class="reveal-placeholder">Select a chapter</div>') +
+    "</div></section>";
+  const renderTestament = (label, books) => {
+    let rows = '<div class="testament-row"><span>' + label + "</span></div>";
+    for (let start = 0; start < books.length; start += booksPerRow) {
+      const row = books.slice(start, start + booksPerRow);
+      rows += '<div class="book-grid">' + makeBooks(row) + "</div>";
+      if (state.browseStage !== "books" && row.some(([book]) => book === selectedBook)) rows += chapterPanel;
+    }
+    return rows;
+  };
   return '<section class="reference-browser ' + (state.navigatorOpen ? "open" : "") + '" aria-label="Browse Bible reference">' +
-    '<div class="browser-section staged-books"><div class="browser-label">Book</div><div class="testament-row"><span>Old Testament</span></div><div class="book-grid">' + makeBooks(BOOKS.slice(0, Math.min(initialBookCount, 39))) + "</div>" +
-      (state.browseStage === "books" ? '<div class="testament-row"><span>New Testament</span></div><div class="book-grid">' + makeBooks(BOOKS.slice(39)) + "</div>" : "") +
-      chapterPanel +
-      (state.browseStage !== "books" && initialBookCount < 39 ? '<div class="book-grid book-grid-rest">' + makeBooks(BOOKS.slice(initialBookCount, 39)) + "</div>" : "") +
-      (state.browseStage !== "books" ? '<div class="testament-row"><span>New Testament</span></div><div class="book-grid">' + makeBooks(BOOKS.slice(39)) + "</div>" : "") +
-    "</div>" +
+    '<div class="browser-section staged-books"><div class="browser-label">Book</div>' + renderTestament("Old Testament", BOOKS.slice(0, 39)) + renderTestament("New Testament", BOOKS.slice(39)) + "</div>" +
   "</section>";
 }
 
@@ -297,8 +300,8 @@ function noteMarkup() {
 
 function bookmarksMarkup() {
   const cards = state.bookmarks.length ? state.bookmarks.slice().reverse().map((bookmark) =>
-    '<div class="bookmark-card" data-go-bookmark="' + escapeHtml(bookmark.reference) + '"><strong>' + escapeHtml(bookmark.reference) + "</strong>" +
-      '<span>' + escapeHtml(bookmark.label || "Saved passage") + "</span></div>"
+    '<div class="bookmark-card" data-go-bookmark="' + escapeHtml(bookmark.reference) + '"><div><strong>' + escapeHtml(bookmark.reference) + "</strong>" +
+      '<span>' + escapeHtml(bookmark.label || "Saved passage") + '</span></div><button class="bookmark-remove" data-delete-bookmark="' + escapeHtml(bookmark.reference) + '" title="Remove bookmark" aria-label="Remove ' + escapeHtml(bookmark.reference) + ' bookmark">' + icon("trash-2") + "</button></div>"
   ).join("") : '<div class="empty-state">Your saved passages will appear here.</div>';
   return '<div class="bookmark-panel"><div class="note-reference"><span>Saved passages</span><span>' + state.bookmarks.length + "</span></div>" + cards + "</div>";
 }
@@ -542,16 +545,27 @@ app.addEventListener("click", async (event) => {
   if (chapterNav) { const parts = chapterNav.dataset.chapterNav.split("|"); navigateChapter(Number(parts[0]), Number(parts[1])); return; }
   const browseBook = event.target.closest("[data-browse-book]");
   if (browseBook) {
-    state.browseBook = browseBook.dataset.browseBook;
-    state.browseChapter = 1;
-    state.browseStage = "chapters";
+    const nextBook = browseBook.dataset.browseBook;
+    if (state.browseBook === nextBook && state.browseStage !== "books") {
+      state.browseBook = "";
+      state.browseStage = "books";
+    } else {
+      state.browseBook = nextBook;
+      state.browseChapter = 1;
+      state.browseStage = "chapters";
+    }
     state.navigatorOpen = true;
     persist(); render(); return;
   }
   const browseChapter = event.target.closest("[data-browse-chapter]");
   if (browseChapter) {
-    state.browseChapter = Number(browseChapter.dataset.browseChapter);
-    state.browseStage = "verses";
+    const nextChapter = Number(browseChapter.dataset.browseChapter);
+    if (state.browseStage === "verses" && Number(state.browseChapter) === nextChapter) {
+      state.browseStage = "chapters";
+    } else {
+      state.browseChapter = nextChapter;
+      state.browseStage = "verses";
+    }
     state.navigatorOpen = true;
     persist(); render(); return;
   }
@@ -581,6 +595,11 @@ app.addEventListener("click", async (event) => {
   if (study) { state.studyTab = study.dataset.studyTab || study.dataset.studyOpen; persist(); render(); return; }
   const highlighter = event.target.closest("[data-highlight]");
   if (highlighter) { state.highlights[popoverVerse] = highlighter.dataset.highlight; persist(); render(); return; }
+  const deleteBookmark = event.target.closest("[data-delete-bookmark]");
+  if (deleteBookmark) {
+    state.bookmarks = state.bookmarks.filter((item) => item.reference !== deleteBookmark.dataset.deleteBookmark);
+    persist(); render(); showToast("Bookmark removed."); return;
+  }
   const bookmark = event.target.closest("[data-go-bookmark]");
   if (bookmark) { const parsed = parseReference(bookmark.dataset.goBookmark); if (parsed) { changeReference(parsed); state.studyTab = "bookmarks"; } return; }
   const paper = event.target.closest("[data-paper]");

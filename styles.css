@@ -395,6 +395,12 @@ body.dark .reveal-title { border-color: var(--border); }
 .reference-browser .staged-books > .book-grid { grid-template-columns: repeat(9, minmax(0, 1fr)); }
 .reference-browser .browse-chip,
 .reference-browser .number-chip { min-height: 31px; }
+.reveal-placeholder { display: grid; min-height: 100%; place-items: center; padding: 22px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.bookmark-card { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.bookmark-card > div { min-width: 0; }
+.bookmark-remove { display: inline-flex; flex: 0 0 auto; width: 28px; height: 28px; align-items: center; justify-content: center; padding: 0; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; }
+.bookmark-remove:hover { border-color: #d7b1b8; background: #f8e9eb; color: #9b4755; }
+.bookmark-remove svg { display: block; width: 14px; height: 14px; }
 
 .reader-pane .pane-header { padding: 20px; }
 .reader-pane .passage-choice { padding: 10px 20px; }
@@ -463,4 +469,5 @@ body.dark .reveal-title { border-color: var(--border); }
 
 @media (max-width: 430px) {
   .reference-browser .staged-books > .book-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .reveal-placeholder { min-height: 66px; }
 }
