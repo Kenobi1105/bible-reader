@@ -47,6 +47,31 @@ export function chapterCount(book) {
   return BOOKS.find(([name]) => name === book)?.[1] ?? 1;
 }
 
+export function isOldTestament(book) {
+  return BOOKS.findIndex(([name]) => name === book) < 39;
+}
+
+export function moveChapter(reference, direction) {
+  const currentBookIndex = BOOKS.findIndex(([name]) => name === reference.book);
+  const currentBook = BOOKS[currentBookIndex];
+  const chapter = Number(reference.chapter);
+
+  if (direction > 0 && chapter < currentBook[1]) {
+    return { ...reference, chapter: chapter + 1, verse: 1 };
+  }
+  if (direction < 0 && chapter > 1) {
+    return { ...reference, chapter: chapter - 1, verse: 1 };
+  }
+
+  const adjacentBook = BOOKS[currentBookIndex + direction];
+  if (!adjacentBook) return null;
+  return {
+    book: adjacentBook[0],
+    chapter: direction > 0 ? 1 : adjacentBook[1],
+    verse: 1
+  };
+}
+
 export function displayReference(reference) {
   return reference.book + " " + reference.chapter + (reference.verse ? ":" + reference.verse : "");
 }

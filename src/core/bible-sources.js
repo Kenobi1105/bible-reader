@@ -48,7 +48,8 @@ function cleanText(value) {
 }
 
 async function fetchNet(reference) {
-  const url = "https://labs.bible.org/api/?passage=" + encodeURIComponent(displayReference(reference)) + "&formatting=plain&type=json";
+  const chapterReference = { ...reference, verse: 0 };
+  const url = "https://labs.bible.org/api/?passage=" + encodeURIComponent(displayReference(chapterReference)) + "&formatting=plain&type=json";
   const response = await fetch(url);
   if (!response.ok) throw new Error("NET service returned " + response.status);
   const data = await response.json();
