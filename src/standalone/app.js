@@ -280,8 +280,8 @@ function render() {
       '<div class="reference-search">' + icon("search") +
         '<input id="reference-search" value="' + escapeHtml(displayReference(activePane().reference)) + '" aria-label="Find a reference" />' +
         '<span class="search-hint">John 3:16</span></div><div class="topbar-spacer"></div>' +
-      '<button class="icon-button" data-action="settings" title="Reader settings">' + icon("sliders-horizontal") + "</button>" +
-      '<button class="icon-button" data-action="new-tab" title="New tab">' + icon("plus") + "</button><div class="user-dot">JK</div>" +
+      '<button class="icon-button" data-action="settings" title="Reader settings">' + icon("sliders-horizontal") + '</button>' +
+      '<button class="icon-button" data-action="new-tab" title="New tab">' + icon("plus") + '</button><div class="user-dot">JK</div>' +
     "</header>" + renderControls() +
     '<div class="desk"><section class="reading-area"><div class="pane-grid ' + paneGrid + '">' +
       panes.map((pane, index) => renderPane(pane, state.split ? index : state.activePane)).join("") +
