@@ -4,16 +4,18 @@ import { downloadFile, loadState, saveState } from "../core/storage.js";
 
 const app = document.querySelector("#app");
 const defaultState = {
-  uiVersion: 2,
-  tabs: [{ id: "tab-1", label: "John 1", panes: [
-    { reference: { book: "John", chapter: 1, verse: 1 }, translation: "NET", scope: "chapter" },
-    { reference: { book: "John", chapter: 1, verse: 1 }, translation: "SBLGNT", scope: "chapter" }
-  ] }],
-  activeTab: "tab-1",
+  canvasVersion: 3,
+  canvases: [
+    { activeTab: "canvas-0-tab-1", tabs: [{ id: "canvas-0-tab-1", label: "John 1", reference: { book: "John", chapter: 1, verse: 1 }, translation: "NET", scope: "chapter" }] },
+    { activeTab: "canvas-1-tab-1", tabs: [{ id: "canvas-1-tab-1", label: "John 1", reference: { book: "John", chapter: 1, verse: 1 }, translation: "SBLGNT", scope: "chapter" }] }
+  ],
   activePane: 0,
   split: false,
   studyOpen: false,
   navigatorOpen: false,
+  browseStage: "books",
+  browseBook: "",
+  browseChapter: 1,
   paper: "white",
   dark: false,
   fontSize: 19,
@@ -26,13 +28,18 @@ const defaultState = {
 };
 
 let state = loadState(defaultState);
-if (state.workspaceVersion !== 2) {
-  state.uiVersion = 2;
-  state.workspaceVersion = 2;
+if (state.canvasVersion !== 3) {
+  const legacyWorkspace = state.tabs?.find((tab) => tab.id === state.activeTab) || state.tabs?.[0];
+  const legacyPanes = legacyWorkspace?.panes || defaultState.canvases.map((canvas) => canvas.tabs[0]);
+  state.canvases = legacyPanes.slice(0, 2).map((pane, index) => {
+    const id = "canvas-" + index + "-tab-1";
+    return { activeTab: id, tabs: [{ ...pane, id, label: displayReference(pane.reference), scope: "chapter" }] };
+  });
+  state.canvasVersion = 3;
   state.split = false;
   state.studyOpen = false;
   state.navigatorOpen = false;
-  state.tabs.forEach((tab) => tab.panes.forEach((pane) => { pane.scope = "chapter"; }));
+  state.browseStage = "books";
 }
 let chapterData = {};
 let popoverVerse = null;
@@ -47,12 +54,17 @@ function escapeHtml(value) {
   return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-function activeTab() {
-  return state.tabs.find((tab) => tab.id === state.activeTab) || state.tabs[0];
+function canvasAt(index = state.activePane) {
+  return state.canvases[index];
+}
+
+function paneAt(index = state.activePane) {
+  const canvas = canvasAt(index);
+  return canvas.tabs.find((tab) => tab.id === canvas.activeTab) || canvas.tabs[0];
 }
 
 function activePane() {
-  return activeTab().panes[state.activePane] || activeTab().panes[0];
+  return paneAt(state.activePane);
 }
 
 function referenceKey(pane) {
@@ -119,43 +131,68 @@ function verseOptions(current) {
     .join("");
 }
 
-function renderTabStrip() {
-  const tab = activeTab();
-  return state.tabs.map((item) =>
-    '<button class="workspace-tab ' + (item.id === tab.id ? "active" : "") + '" data-tab="' + item.id + '">' +
-      '<span>' + escapeHtml(item.label) + '</span><span class="tab-close" data-close-tab="' + item.id + '" title="Close tab">' + icon("x") + "</span>" +
+function renderCanvasTabs(paneIndex) {
+  const canvas = canvasAt(paneIndex);
+  return '<div class="canvas-tabs">' + canvas.tabs.map((item) =>
+    '<button class="canvas-tab ' + (item.id === canvas.activeTab ? "active" : "") + '" data-canvas-tab="' + paneIndex + "|" + item.id + '">' +
+      '<span>' + escapeHtml(item.label) + '</span><span class="tab-close" data-close-canvas-tab="' + paneIndex + "|" + item.id + '" title="Close tab">' + icon("x") + "</span>" +
     "</button>"
-  ).join("");
+  ).join("") + '<button class="canvas-tab-add" data-canvas-new="' + paneIndex + '" title="New passage tab">' + icon("plus") + "</button></div>";
 }
 
 function renderReferenceBrowser() {
   const pane = activePane();
+  const selectedBook = state.browseBook || pane.reference.book;
+  const selectedChapter = state.browseChapter || pane.reference.chapter;
+  const activeBookIndex = BOOKS.findIndex(([book]) => book === selectedBook);
+  const booksPerRow = 9;
+  const initialBookCount = state.browseStage === "books" ? BOOKS.length : Math.ceil((activeBookIndex + 1) / booksPerRow) * booksPerRow;
+  const shortNames = {
+    "Genesis": "Gn", "Exodus": "Ex", "Leviticus": "Lv", "Numbers": "Nm", "Deuteronomy": "Dt", "Joshua": "Jo", "Judges": "Jgs", "Ruth": "Ru",
+    "1 Samuel": "1 Sm", "2 Samuel": "2 Sm", "1 Kings": "1 Kgs", "2 Kings": "2 Kgs", "1 Chronicles": "1 Ch", "2 Chronicles": "2 Ch",
+    "Ezra": "Ezr", "Nehemiah": "Neh", "Esther": "Est", "Job": "Jb", "Psalms": "Ps", "Proverbs": "Prv", "Ecclesiastes": "Ecc",
+    "Song of Songs": "Sg", "Isaiah": "Is", "Jeremiah": "Jer", "Lamentations": "Lam", "Ezekiel": "Ez", "Daniel": "Dn",
+    "Hosea": "Hos", "Joel": "Jl", "Amos": "Am", "Obadiah": "Ob", "Jonah": "Jon", "Micah": "Mi", "Nahum": "Na", "Habakkuk": "Hb",
+    "Zephaniah": "Zep", "Haggai": "Hg", "Zechariah": "Zec", "Malachi": "Mal", "Matthew": "Mt", "Mark": "Mk", "Luke": "Lk",
+    "John": "Jn", "Acts": "Ac", "Romans": "Rm", "1 Corinthians": "1 Co", "2 Corinthians": "2 Co", "Galatians": "Gal",
+    "Ephesians": "Eph", "Philippians": "Phil", "Colossians": "Col", "1 Thessalonians": "1 Th", "2 Thessalonians": "2 Th",
+    "1 Timothy": "1 Tm", "2 Timothy": "2 Tm", "Titus": "Ti", "Philemon": "Phm", "Hebrews": "Heb", "James": "Jas",
+    "1 Peter": "1 Pt", "2 Peter": "2 Pt", "1 John": "1 Jn", "2 John": "2 Jn", "3 John": "3 Jn", "Jude": "Jd", "Revelation": "Rv"
+  };
   const makeBooks = (books) => books.map(([book]) =>
-    '<button class="browse-chip ' + (book === pane.reference.book ? "selected" : "") + '" data-browse-book="' + escapeHtml(book) + '">' + escapeHtml(book) + "</button>"
+    '<button class="browse-chip ' + (book === selectedBook ? "selected" : "") + '" data-browse-book="' + escapeHtml(book) + '">' + shortNames[book] + "</button>"
   ).join("");
-  const chapters = Array.from({ length: chapterCount(pane.reference.book) }, (_, index) => index + 1).map((chapter) =>
-    '<button class="number-chip ' + (chapter === Number(pane.reference.chapter) ? "selected" : "") + '" data-browse-chapter="' + chapter + '">' + chapter + "</button>"
+  const chapters = Array.from({ length: chapterCount(selectedBook) }, (_, index) => index + 1).map((chapter) =>
+    '<button class="number-chip ' + (chapter === Number(selectedChapter) ? "selected" : "") + '" data-browse-chapter="' + chapter + '">' + chapter + "</button>"
   ).join("");
   const verses = Array.from({ length: 176 }, (_, index) => index + 1).map((verse) =>
     '<button class="number-chip ' + (verse === Number(pane.reference.verse) ? "selected" : "") + '" data-browse-verse="' + verse + '">' + verse + "</button>"
   ).join("");
+  const chapterPanel = state.browseStage === "chapters"
+    ? '<section class="browse-reveal"><div class="reveal-title"><strong>' + escapeHtml(selectedBook) + "</strong><button data-browse-back=\"books\" title=\"Close chapter picker\">" + icon("x") + "</button></div><div class=\"chapter-grid\">" + chapters + "</div></section>"
+    : state.browseStage === "verses"
+      ? '<section class="browse-reveal split-reveal"><div class="reveal-column"><div class="reveal-title"><strong>' + escapeHtml(selectedBook) + "</strong><button data-browse-back=\"books\" title=\"Close passage picker\">" + icon("x") + "</button></div><div class=\"chapter-grid\">" + chapters + "</div></div><div class=\"reveal-column verse-column\"><div class=\"reveal-title\"><strong>Verse</strong></div><div class=\"chapter-grid verse-grid\">" + verses + "</div></div></section>"
+      : "";
   return '<section class="reference-browser ' + (state.navigatorOpen ? "open" : "") + '" aria-label="Browse Bible reference">' +
-    '<div class="browser-section"><div class="browser-label">Book</div><div class="testament-row"><span>Old Testament</span></div><div class="book-grid">' + makeBooks(BOOKS.slice(0, 39)) + '</div><div class="testament-row"><span>New Testament</span></div><div class="book-grid">' + makeBooks(BOOKS.slice(39)) + "</div></div>" +
-    '<div class="browser-section browser-numbers"><div class="browser-label">Chapter</div><div class="number-grid">' + chapters + '</div><div class="browser-label">Verse</div><div class="number-grid verse-grid">' + verses + "</div></div>" +
+    '<div class="browser-section staged-books"><div class="browser-label">Book</div><div class="testament-row"><span>Old Testament</span></div><div class="book-grid">' + makeBooks(BOOKS.slice(0, Math.min(initialBookCount, 39))) + "</div>" +
+      (state.browseStage === "books" ? '<div class="testament-row"><span>New Testament</span></div><div class="book-grid">' + makeBooks(BOOKS.slice(39)) + "</div>" : "") +
+      chapterPanel +
+      (state.browseStage !== "books" && initialBookCount < 39 ? '<div class="book-grid book-grid-rest">' + makeBooks(BOOKS.slice(initialBookCount, 39)) + "</div>" : "") +
+      (state.browseStage !== "books" ? '<div class="testament-row"><span>New Testament</span></div><div class="book-grid">' + makeBooks(BOOKS.slice(39)) + "</div>" : "") +
+    "</div>" +
   "</section>";
 }
 
 function renderWorkspaceHeader() {
   const reference = displayReference(activePane().reference);
   return '<header class="workspace-header"><div class="brand compact"><div class="brand-mark">' + icon("book-open") + '</div><div>Scripture Desk</div></div>' +
-    '<div class="workspace-tabs">' + renderTabStrip() + '<button class="tab-add" data-action="new-tab" title="New tab">' + icon("plus") + "</button></div>" +
     '<div class="header-actions"><div class="reference-entry">' + icon("search") +
       '<input id="reference-search" value="' + escapeHtml(reference) + '" aria-label="Find a reference" placeholder="John 3:16" />' +
       '<button class="browse-trigger" data-action="toggle-browser" title="Browse book, chapter, and verse">' + icon("chevron-down") + '<span>Browse</span></button></div>' +
       '<button class="icon-button ' + (state.studyOpen ? "active" : "") + '" data-action="toggle-study" title="Study tools">' + icon("notebook-pen") + "</button>" +
       '<button class="icon-button ' + (state.split ? "active" : "") + '" data-action="split" title="Toggle split screen">' + icon("columns-2") + "</button>" +
       '<button class="icon-button" data-action="settings" title="Reader settings">' + icon("sliders-horizontal") + "</button></div>" +
-    (state.split ? '<div class="mobile-pane-switch"><button data-mobile-pane="0" class="' + (state.activePane === 0 ? "active" : "") + '">' + activeTab().panes[0].translation + '</button><button data-mobile-pane="1" class="' + (state.activePane === 1 ? "active" : "") + '">' + activeTab().panes[1].translation + "</button></div>" : "") +
+    (state.split ? '<div class="mobile-pane-switch"><button data-mobile-pane="0" class="' + (state.activePane === 0 ? "active" : "") + '">' + paneAt(0).translation + '</button><button data-mobile-pane="1" class="' + (state.activePane === 1 ? "active" : "") + '">' + paneAt(1).translation + "</button></div>" : "") +
   "</header>";
 }
 
@@ -186,16 +223,14 @@ function renderPane(pane, paneIndex) {
     return '<span class="verse' + highlight + selected + '" data-verse="' + escapeHtml(verseRef) + '" data-pane="' + paneIndex + '" dir="' + translation.direction + '">' +
       '<sup class="verse-number">' + verse.number + "</sup>" + escapeHtml(verse.text) + '</span><span class="verse-spacer"> </span>';
   }).join("") : emptyReader(translation, result);
-  return '<article class="' + classes + '" data-activate-pane="' + paneIndex + '">' +
+  return '<article class="' + classes + '" data-activate-pane="' + paneIndex + '">' + renderCanvasTabs(paneIndex) +
     '<div class="pane-header"><div class="pane-topline"><select class="version-select" data-pane-version="' + paneIndex + '" aria-label="Bible version">' + versionOptions + "</select>" + offlineStatus + '</div>' +
       '<div class="chapter-nav"><button class="chapter-arrow" data-chapter-nav="' + paneIndex + '|-1" title="Previous chapter">' + icon("chevron-left") + '</button><div>' +
       '<h1 class="chapter-title">' + escapeHtml(pane.reference.book) + " " + pane.reference.chapter + '</h1><p class="pane-meta">' + escapeHtml(translation.name) + " · " + escapeHtml(translation.language) + "</p></div>" +
       '<button class="chapter-arrow" data-chapter-nav="' + paneIndex + '|1" title="Next chapter">' + icon("chevron-right") + "</button></div></div>" +
-    '<div class="passage-choice"><span>' + escapeHtml(pericope.title) + '</span><div class="reader-mode">' +
-      '<button data-pane-scope="' + paneIndex + '|chapter" class="' + (pane.scope === "chapter" ? "active" : "") + '">Chapter</button>' +
-      '<button data-pane-scope="' + paneIndex + '|pericope" class="' + (pane.scope === "pericope" ? "active" : "") + '">Pericope</button>' +
-      '<button data-pane-scope="' + paneIndex + '|verse" class="' + (pane.scope === "verse" ? "active" : "") + '">Verse</button>' +
-    "</div></div>" + versesHtml +
+    '<div class="passage-choice"><span>' + escapeHtml(pericope.title) + '</span><span class="chapter-context">' +
+      (pane.scope === "pericope" ? "Focused pericope" : pane.scope === "verse" ? "Selected verse" : "Whole chapter") +
+    "</span></div>" + versesHtml +
     '<div class="source-status ' + (result?.error ? "warning" : "") + '">' + icon(result?.error ? "circle-alert" : "cloud-check") +
       "<span>" + escapeHtml(result?.message || "Loading chapter...") + "</span></div>" +
   "</article>";
@@ -298,17 +333,18 @@ function renderPopover() {
     '<div class="popover-actions"><button class="button small" data-action="bookmark">' + icon("bookmark-plus") + "Save</button>" +
       '<button class="button small" data-action="copy-verse">' + icon("copy") + "Copy ref</button>" +
       '<button class="button small" data-action="open-note">' + icon("notebook-pen") + "Note</button>" +
-      '<button class="button small" data-action="clear-highlight">Clear</button></div></div>';
+      '<button class="button small" data-action="clear-highlight">Clear</button></div>' +
+    '<div class="focus-actions"><button class="button primary small" data-action="focus-pericope">' + icon("columns-2") + "Focus this pericope</button>" +
+      '<button class="button small" data-action="focus-verse">' + icon("columns-2") + "Show this verse only</button></div></div>";
 }
 
 function render() {
   setRootTheme();
-  const tab = activeTab();
-  const panes = state.split ? tab.panes : [tab.panes[state.activePane]];
+  const paneIndexes = state.split ? [0, 1] : [state.activePane];
   const paneGrid = state.split ? "split" : "single";
   app.innerHTML = '<main class="reader-shell">' + renderWorkspaceHeader() + renderReferenceBrowser() +
     '<div class="desk ' + (state.studyOpen ? "study-open" : "") + '"><section class="reading-area"><div class="pane-grid ' + paneGrid + '">' +
-      panes.map((pane, index) => renderPane(pane, state.split ? index : state.activePane)).join("") +
+      paneIndexes.map((paneIndex) => renderPane(paneAt(paneIndex), paneIndex)).join("") +
     "</div></section>" + (state.studyOpen ? renderStudyPanel() : "") + "</div></main>" + renderSettings() + renderPopover();
   if (window.lucide) window.lucide.createIcons();
   if (scrollToSelectedVerse) {
@@ -327,9 +363,8 @@ async function loadPane(pane) {
 }
 
 function loadVisiblePanes() {
-  const tab = activeTab();
-  const panes = state.split ? tab.panes : [activePane()];
-  panes.forEach(loadPane);
+  const paneIndexes = state.split ? [0, 1] : [state.activePane];
+  paneIndexes.map((index) => paneAt(index)).forEach(loadPane);
 }
 
 function closeOverlays() {
@@ -358,12 +393,16 @@ function openSettings(target) {
   menu.style.top = rect.bottom + 8 + "px";
 }
 
-function newTab() {
-  const pane = JSON.parse(JSON.stringify(activePane()));
-  const id = "tab-" + Date.now();
-  state.tabs.push({ id, label: displayReference(pane.reference), panes: [pane, { ...pane, translation: "NET" }] });
-  state.activeTab = id;
-  state.activePane = 0;
+function newCanvasTab(paneIndex = state.activePane) {
+  const canvas = canvasAt(paneIndex);
+  const pane = JSON.parse(JSON.stringify(paneAt(paneIndex)));
+  const id = "canvas-" + paneIndex + "-tab-" + Date.now();
+  pane.id = id;
+  pane.label = displayReference(pane.reference);
+  pane.scope = "chapter";
+  canvas.tabs.push(pane);
+  canvas.activeTab = id;
+  state.activePane = paneIndex;
   state.navigatorOpen = false;
   persist();
   render();
@@ -371,11 +410,11 @@ function newTab() {
 }
 
 function changePaneReference(paneIndex, next) {
-  const pane = activeTab().panes[paneIndex];
+  const pane = paneAt(paneIndex);
   pane.reference = next;
+  pane.label = displayReference(next);
   pane.scope = "chapter";
   updateOfflineVersion(pane);
-  activeTab().label = displayReference(next);
   state.activePane = paneIndex;
   state.selectedVerse = displayReference(next);
   state.navigatorOpen = false;
@@ -390,9 +429,36 @@ function changeReference(next) {
 }
 
 function navigateChapter(paneIndex, direction) {
-  const next = moveChapter(activeTab().panes[paneIndex].reference, direction);
+  const next = moveChapter(paneAt(paneIndex).reference, direction);
   if (!next) return showToast("You are already at the edge of the canon.");
   changePaneReference(paneIndex, next);
+}
+
+function activateSplitFocus(scope) {
+  const sourceIndex = state.activePane;
+  const targetIndex = sourceIndex === 0 ? 1 : 0;
+  const sourcePane = paneAt(sourceIndex);
+  const reference = parseReference(popoverVerse);
+  if (!reference) return;
+
+  const targetCanvas = canvasAt(targetIndex);
+  const id = "canvas-" + targetIndex + "-tab-" + Date.now();
+  const focusedPane = {
+    ...JSON.parse(JSON.stringify(sourcePane)),
+    id,
+    label: displayReference(reference),
+    reference,
+    scope
+  };
+  targetCanvas.tabs.push(focusedPane);
+  targetCanvas.activeTab = id;
+  state.split = true;
+  state.activePane = targetIndex;
+  state.selectedVerse = displayReference(reference);
+  popoverVerse = null;
+  persist();
+  render();
+  loadVisiblePanes();
 }
 
 function syncNote() {
@@ -451,58 +517,66 @@ async function saveToObsidian() {
 }
 
 app.addEventListener("click", async (event) => {
-  const close = event.target.closest("[data-close-tab]");
+  const close = event.target.closest("[data-close-canvas-tab]");
   if (close) {
     event.stopPropagation();
-    if (state.tabs.length === 1) return showToast("Keep at least one reading tab open.");
-    const id = close.dataset.closeTab;
-    state.tabs = state.tabs.filter((tab) => tab.id !== id);
-    if (state.activeTab === id) state.activeTab = state.tabs[0].id;
+    const [paneIndex, id] = close.dataset.closeCanvasTab.split("|");
+    const canvas = canvasAt(Number(paneIndex));
+    if (canvas.tabs.length === 1) return showToast("Keep at least one tab open in this canvas.");
+    canvas.tabs = canvas.tabs.filter((tab) => tab.id !== id);
+    if (canvas.activeTab === id) canvas.activeTab = canvas.tabs[0].id;
     persist(); render(); loadVisiblePanes(); return;
   }
-  const tab = event.target.closest("[data-tab]");
-  if (tab) { state.activeTab = tab.dataset.tab; state.activePane = 0; persist(); render(); loadVisiblePanes(); return; }
+  const canvasTab = event.target.closest("[data-canvas-tab]");
+  if (canvasTab) {
+    const [paneIndex, id] = canvasTab.dataset.canvasTab.split("|");
+    canvasAt(Number(paneIndex)).activeTab = id;
+    state.activePane = Number(paneIndex);
+    persist(); render(); loadVisiblePanes(); return;
+  }
+  const canvasNew = event.target.closest("[data-canvas-new]");
+  if (canvasNew) return newCanvasTab(Number(canvasNew.dataset.canvasNew));
   const mobilePane = event.target.closest("[data-mobile-pane]");
   if (mobilePane) { state.activePane = Number(mobilePane.dataset.mobilePane); persist(); render(); return; }
   const chapterNav = event.target.closest("[data-chapter-nav]");
   if (chapterNav) { const parts = chapterNav.dataset.chapterNav.split("|"); navigateChapter(Number(parts[0]), Number(parts[1])); return; }
   const browseBook = event.target.closest("[data-browse-book]");
   if (browseBook) {
-    const pane = activePane();
-    pane.reference = { book: browseBook.dataset.browseBook, chapter: 1, verse: 1 };
-    pane.scope = "chapter";
-    updateOfflineVersion(pane);
-    state.selectedVerse = displayReference(pane.reference);
-    activeTab().label = displayReference(pane.reference);
+    state.browseBook = browseBook.dataset.browseBook;
+    state.browseChapter = 1;
+    state.browseStage = "chapters";
     state.navigatorOpen = true;
-    persist(); render(); loadVisiblePanes(); return;
+    persist(); render(); return;
   }
   const browseChapter = event.target.closest("[data-browse-chapter]");
   if (browseChapter) {
-    const pane = activePane();
-    pane.reference.chapter = Number(browseChapter.dataset.browseChapter);
-    pane.reference.verse = 1;
-    pane.scope = "chapter";
-    updateOfflineVersion(pane);
-    state.selectedVerse = displayReference(pane.reference);
-    activeTab().label = displayReference(pane.reference);
+    state.browseChapter = Number(browseChapter.dataset.browseChapter);
+    state.browseStage = "verses";
     state.navigatorOpen = true;
-    persist(); render(); loadVisiblePanes(); return;
+    persist(); render(); return;
   }
   const browseVerse = event.target.closest("[data-browse-verse]");
   if (browseVerse) {
     const pane = activePane();
-    changeReference({ ...pane.reference, verse: Number(browseVerse.dataset.browseVerse) });
+    changeReference({
+      book: state.browseBook || pane.reference.book,
+      chapter: state.browseChapter || pane.reference.chapter,
+      verse: Number(browseVerse.dataset.browseVerse)
+    });
     return;
+  }
+  const browseBack = event.target.closest("[data-browse-back]");
+  if (browseBack) {
+    state.browseStage = browseBack.dataset.browseBack;
+    if (state.browseStage === "books") state.browseBook = "";
+    persist(); render(); return;
   }
   const verse = event.target.closest("[data-verse]");
   if (verse) { state.activePane = Number(verse.dataset.pane); openVersePopover(verse.dataset.verse, verse); return; }
   const pane = event.target.closest("[data-activate-pane]");
-  if (pane) { state.activePane = Number(pane.dataset.activatePane); persist(); render(); return; }
+  if (pane && !event.target.closest("button, select, input, textarea")) { state.activePane = Number(pane.dataset.activatePane); persist(); render(); return; }
   const scope = event.target.closest("[data-scope]");
   if (scope) { activePane().scope = scope.dataset.scope; persist(); render(); return; }
-  const paneScope = event.target.closest("[data-pane-scope]");
-  if (paneScope) { const parts = paneScope.dataset.paneScope.split("|"); activeTab().panes[Number(parts[0])].scope = parts[1]; state.activePane = Number(parts[0]); persist(); render(); return; }
   const study = event.target.closest("[data-study-tab], [data-study-open]");
   if (study) { state.studyTab = study.dataset.studyTab || study.dataset.studyOpen; persist(); render(); return; }
   const highlighter = event.target.closest("[data-highlight]");
@@ -511,15 +585,22 @@ app.addEventListener("click", async (event) => {
   if (bookmark) { const parsed = parseReference(bookmark.dataset.goBookmark); if (parsed) { changeReference(parsed); state.studyTab = "bookmarks"; } return; }
   const paper = event.target.closest("[data-paper]");
   if (paper) { state.paper = paper.dataset.paper; persist(); render(); openSettings(event.target); return; }
-  const actionTarget = event.target.closest("[data-action], [data-new-tab]");
+  const actionTarget = event.target.closest("[data-action]");
   if (!actionTarget) {
     if (!event.target.closest("#verse-popover") && !event.target.closest("#settings-menu")) closeOverlays();
     return;
   }
-  const action = actionTarget.dataset.action || "new-tab";
-  if (action === "new-tab") return newTab();
+  const action = actionTarget.dataset.action;
   if (action === "split") { state.split = !state.split; persist(); render(); loadVisiblePanes(); return; }
-  if (action === "toggle-browser") { state.navigatorOpen = !state.navigatorOpen; persist(); render(); return; }
+  if (action === "toggle-browser") {
+    state.navigatorOpen = !state.navigatorOpen;
+    if (state.navigatorOpen) {
+      state.browseStage = "books";
+      state.browseBook = "";
+      state.browseChapter = activePane().reference.chapter;
+    }
+    persist(); render(); return;
+  }
   if (action === "toggle-study") { state.studyOpen = !state.studyOpen; persist(); render(); return; }
   if (action === "settings") return openSettings(actionTarget);
   if (action === "dark-mode") { state.dark = !state.dark; persist(); render(); return; }
@@ -530,6 +611,8 @@ app.addEventListener("click", async (event) => {
   if (action === "copy-verse") { await navigator.clipboard?.writeText(popoverVerse); showToast("Reference copied."); return; }
   if (action === "open-note") { state.studyTab = "notes"; state.studyOpen = true; popoverVerse = null; persist(); render(); return; }
   if (action === "clear-highlight") { delete state.highlights[popoverVerse]; persist(); popoverVerse = null; render(); return; }
+  if (action === "focus-pericope") return activateSplitFocus("pericope");
+  if (action === "focus-verse") return activateSplitFocus("verse");
   if (action === "note-mode") {
     syncNote(); state.noteMode = state.noteMode === "rich" ? "markdown" : "rich"; persist(); render(); return;
   }
@@ -542,7 +625,7 @@ app.addEventListener("click", async (event) => {
 app.addEventListener("change", (event) => {
   const paneVersion = event.target.dataset.paneVersion;
   if (paneVersion !== undefined) {
-    const pane = activeTab().panes[Number(paneVersion)];
+    const pane = paneAt(Number(paneVersion));
     pane.translation = event.target.value;
     updateOfflineVersion(pane);
     state.activePane = Number(paneVersion);
@@ -555,7 +638,7 @@ app.addEventListener("change", (event) => {
     if (control === "book") { pane.reference.book = event.target.value; pane.reference.chapter = 1; pane.reference.verse = 1; }
     if (control === "chapter") { pane.reference.chapter = Number(event.target.value); pane.reference.verse = 1; }
     if (control === "verse") pane.reference.verse = Number(event.target.value);
-    activeTab().label = displayReference(pane.reference);
+    pane.label = displayReference(pane.reference);
     state.selectedVerse = displayReference(pane.reference);
     persist(); render(); loadVisiblePanes(); return;
   }
