@@ -216,13 +216,13 @@ function renderPane(pane, paneIndex) {
     '<option value="' + id + '"' + (id === pane.translation ? " selected" : "") + (!isTranslationApplicable(id, pane.reference) ? " disabled" : "") + ">" + item.label + "</option>"
   ).join("");
   const offlineStatus = !navigator.onLine ? '<span class="offline-status">' + icon("wifi-off") + "Offline · " + translation.label + "</span>" : "";
-  const versesHtml = verses.length ? verses.map((verse) => {
+  const versesHtml = verses.length ? '<div class="verse-list">' + verses.map((verse) => {
     const verseRef = pane.reference.book + " " + pane.reference.chapter + ":" + verse.number;
     const highlight = state.highlights[verseRef] ? " highlight-" + state.highlights[verseRef] : "";
     const selected = state.selectedVerse === verseRef ? " selected" : "";
     return '<span class="verse' + highlight + selected + '" data-verse="' + escapeHtml(verseRef) + '" data-pane="' + paneIndex + '" dir="' + translation.direction + '">' +
       '<sup class="verse-number">' + verse.number + "</sup>" + escapeHtml(verse.text) + '</span><span class="verse-spacer"> </span>';
-  }).join("") : emptyReader(translation, result);
+  }).join("") + "</div>" : emptyReader(translation, result);
   return '<article class="' + classes + '" data-activate-pane="' + paneIndex + '">' + renderCanvasTabs(paneIndex) +
     '<div class="pane-header"><div class="pane-topline"><select class="version-select" data-pane-version="' + paneIndex + '" aria-label="Bible version">' + versionOptions + "</select>" + offlineStatus + '</div>' +
       '<div class="chapter-nav"><button class="chapter-arrow" data-chapter-nav="' + paneIndex + '|-1" title="Previous chapter">' + icon("chevron-left") + '</button><div>' +

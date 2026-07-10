@@ -371,3 +371,96 @@ body.dark .reveal-title { border-color: var(--border); }
   .split-reveal { grid-template-columns: 1fr; }
   .split-reveal .reveal-column + .reveal-column { border-top: 1px solid var(--border); border-left: 0; }
 }
+
+/* Compact passage picker and precise reader controls */
+.reference-browser {
+  position: fixed;
+  top: 78px;
+  right: 24px;
+  z-index: 40;
+  display: none;
+  width: min(640px, calc(100vw - 48px));
+  max-height: calc(100vh - 98px);
+  padding: 14px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fffefe;
+  box-shadow: 0 18px 42px rgba(55, 41, 56, .16);
+}
+.reference-browser.open { display: block; }
+.reference-browser .browser-label { margin-bottom: 6px; }
+.reference-browser .testament-row { margin: 10px 0 5px; }
+.reference-browser .browse-reveal { margin: 8px 0; }
+.reference-browser .staged-books > .book-grid { grid-template-columns: repeat(9, minmax(0, 1fr)); }
+.reference-browser .browse-chip,
+.reference-browser .number-chip { min-height: 31px; }
+
+.reader-pane .pane-header { padding: 20px; }
+.reader-pane .passage-choice { padding: 10px 20px; }
+.reader-pane .verse-list { padding: 20px; }
+.reader-pane .source-status { padding: 12px 20px; }
+
+.icon-button,
+.canvas-tab-add,
+.chapter-arrow,
+.canvas-tab .tab-close,
+.browse-trigger,
+.reference-entry,
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.icon-button,
+.canvas-tab-add,
+.chapter-arrow {
+  padding: 0;
+}
+.icon-button > svg,
+.canvas-tab-add > svg,
+.chapter-arrow > svg,
+.canvas-tab .tab-close > svg,
+.browse-trigger > svg,
+.brand-mark > svg {
+  display: block;
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+}
+.canvas-tab .tab-close > svg { width: 12px; height: 12px; }
+.brand-mark > svg { width: 18px; height: 18px; }
+.reference-entry { justify-content: flex-start; }
+.reference-entry > svg {
+  display: block;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin-left: 12px;
+  margin-right: 8px;
+  color: var(--muted);
+}
+.reference-entry input { padding-left: 0; }
+.browse-trigger { gap: 5px; }
+
+@media (max-width: 1050px) {
+  .reference-browser { top: 122px; }
+}
+
+@media (max-width: 760px) {
+  .reference-browser.open {
+    position: fixed;
+    inset: 70px 12px auto;
+    width: auto;
+    max-height: calc(100vh - 86px);
+    padding: 12px;
+  }
+  .reference-browser .staged-books > .book-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .reader-pane .pane-header { padding: 18px 20px; }
+  .reader-pane .verse-list { padding: 20px; }
+}
+
+@media (max-width: 430px) {
+  .reference-browser .staged-books > .book-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
