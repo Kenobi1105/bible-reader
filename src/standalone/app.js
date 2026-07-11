@@ -6,8 +6,8 @@ const app = document.querySelector("#app");
 const defaultState = {
   canvasVersion: 3,
   canvases: [
-    { activeTab: "canvas-0-tab-1", tabs: [{ id: "canvas-0-tab-1", label: "John 1", reference: { book: "John", chapter: 1, verse: 1 }, translation: "NET", scope: "chapter" }] },
-    { activeTab: "canvas-1-tab-1", tabs: [{ id: "canvas-1-tab-1", label: "John 1", reference: { book: "John", chapter: 1, verse: 1 }, translation: "SBLGNT", scope: "chapter" }] }
+    { activeTab: "canvas-0-tab-1", tabs: [{ id: "canvas-0-tab-1", label: "John 1", reference: { book: "John", chapter: 1, verse: 1 }, translation: "NET", scope: "chapter", view: "paragraph" }] },
+    { activeTab: "canvas-1-tab-1", tabs: [{ id: "canvas-1-tab-1", label: "John 1", reference: { book: "John", chapter: 1, verse: 1 }, translation: "SBLGNT", scope: "chapter", view: "paragraph" }] }
   ],
   activePane: 0,
   split: false,
@@ -50,10 +50,14 @@ state.bookmarks = (state.bookmarks || []).map((bookmark, index) => ({
   ...bookmark,
   id: bookmark.id || "bookmark-legacy-" + index + "-" + Date.now()
 }));
+state.canvases?.forEach((canvas) => canvas.tabs?.forEach((pane) => { if (!pane.view) pane.view = "paragraph"; }));
 let chapterData = {};
 let popoverVerse = null;
 let toastTimer = null;
 let pendingArrival = null;
+let browseVerseCount = null;
+let browseVerseLoadKey = null;
+let browseVerseMessage = "Loading verses...";
 
 function icon(name) {
   return '<i data-lucide="' + name + '"></i>';
@@ -121,7 +125,12 @@ function revealArrivalIfReady(pane, key) {
   requestAnimationFrame(() => {
     const verse = document.querySelector('[data-activate-pane="' + arrival.paneIndex + '"] [data-verse="' + arrival.reference + '"]');
     if (!verse) return;
-    verse.scrollIntoView({ block: "start", behavior: "smooth" });
+    const scrollArea = verse.closest(".verse-list");
+    if (scrollArea) {
+      scrollArea.scrollTo({ top: Math.max(0, verse.offsetTop - 16), behavior: "smooth" });
+    } else {
+      verse.scrollIntoView({ block: "start", behavior: "smooth" });
+    }
     verse.classList.add("arrival-flash");
     setTimeout(() => verse.classList.remove("arrival-flash"), 2400);
   });
@@ -197,13 +206,13 @@ function renderReferenceBrowser() {
   const chapters = Array.from({ length: chapterCount(selectedBook) }, (_, index) => index + 1).map((chapter) =>
     '<button class="number-chip ' + (chapter === Number(selectedChapter) ? "selected" : "") + '" data-browse-chapter="' + chapter + '">' + chapter + "</button>"
   ).join("");
-  const verses = Array.from({ length: 176 }, (_, index) => index + 1).map((verse) =>
+  const verses = Array.from({ length: browseVerseCount || 0 }, (_, index) => index + 1).map((verse) =>
     '<button class="number-chip ' + (verse === Number(pane.reference.verse) ? "selected" : "") + '" data-browse-verse="' + verse + '">' + verse + "</button>"
   ).join("");
   const chapterPanel = state.browseStage === "books" ? "" :
     '<section class="browse-reveal split-reveal"><div class="reveal-column"><div class="reveal-title"><strong>' + escapeHtml(selectedBook) + "</strong><button data-browse-back=\"books\" title=\"Close passage picker\">" + icon("x") + "</button></div><div class=\"chapter-grid\">" + chapters + "</div></div><div class=\"reveal-column verse-column\">" +
       (state.browseStage === "verses"
-        ? '<div class="reveal-title"><strong>Verse</strong></div><div class="chapter-grid verse-grid">' + verses + "</div>"
+        ? '<div class="reveal-title"><strong>Verse</strong></div><div class="chapter-grid verse-grid">' + (verses || '<div class="picker-loading">' + escapeHtml(browseVerseMessage) + "</div>") + "</div>"
         : '<div class="reveal-placeholder">Select a chapter</div>') +
     "</div></section>";
   const renderTestament = (label, books) => {
@@ -240,6 +249,59 @@ function emptyReader(translation, result) {
   "</div></div>";
 }
 
+function scopedVerses(pane, verses) {
+  const pericope = findPericope(pane.reference);
+  if (pane.scope === "verse") return verses.filter((verse) => verse.number === Number(pane.reference.verse));
+  if (pane.scope === "pericope" && pericope.to) return verses.filter((verse) => verse.number >= pericope.from && verse.number <= pericope.to);
+  return verses;
+}
+
+function verseReference(pane, number) {
+  return pane.reference.book + " " + pane.reference.chapter + ":" + number;
+}
+
+function normalVersesMarkup(pane, paneIndex, verses, translation) {
+  return '<div class="verse-list">' + verses.map((verse) => {
+    const verseRef = verseReference(pane, verse.number);
+    const highlight = state.highlights[verseRef] ? " highlight-" + state.highlights[verseRef] : "";
+    const selected = state.selectedVerse === verseRef ? " selected" : "";
+    return '<span class="verse' + highlight + selected + '" data-verse="' + escapeHtml(verseRef) + '" data-pane="' + paneIndex + '" dir="' + translation.direction + '">' +
+      '<sup class="verse-number">' + verse.number + "</sup>" + escapeHtml(verse.text) + '</span><span class="verse-spacer"> </span>';
+  }).join("") + "</div>";
+}
+
+function interlinearMarkup(pane, paneIndex) {
+  const reference = displayReference(pane.reference);
+  const originalId = interlinearTranslation(pane.reference);
+  const netVerses = scopedVerses(pane, chapterData["NET|" + reference]?.verses || []);
+  const originalByNumber = new Map(scopedVerses(pane, chapterData[originalId + "|" + reference]?.verses || []).map((verse) => [verse.number, verse]));
+  if (!netVerses.length) return emptyReader(TRANSLATIONS.NET, { message: "Loading the interlinear pair..." });
+  return '<div class="verse-list interlinear-list">' + netVerses.map((verse) => {
+    const verseRef = verseReference(pane, verse.number);
+    const original = originalByNumber.get(verse.number);
+    const selected = state.selectedVerse === verseRef ? " selected" : "";
+    return '<div class="interlinear-verse' + selected + '" data-verse="' + escapeHtml(verseRef) + '" data-pane="' + paneIndex + '">' +
+      '<div class="interlinear-line net-line"><span class="interlinear-label">NET</span><sup class="verse-number">' + verse.number + "</sup>" + escapeHtml(verse.text) + "</div>" +
+      '<div class="interlinear-line original-line lang-' + TRANSLATIONS[originalId].script + '" dir="' + TRANSLATIONS[originalId].direction + '"><span class="interlinear-label">' + originalId + "</span>" + (original ? '<sup class="verse-number">' + original.number + "</sup>" + escapeHtml(original.text) : '<span class="interlinear-loading">Loading ' + originalId + "...</span>") + "</div>" +
+    "</div>";
+  }).join("") + "</div>";
+}
+
+function comparisonMarkup(pane, paneIndex) {
+  const reference = displayReference(pane.reference);
+  const verseNumber = Number(pane.reference.verse);
+  const verseRef = verseReference(pane, verseNumber);
+  const selected = state.selectedVerse === verseRef ? " selected" : "";
+  const translations = Object.keys(TRANSLATIONS).filter((id) => isTranslationApplicable(id, pane.reference));
+  return '<div class="verse-list comparison-list">' + translations.map((id) => {
+    const translation = TRANSLATIONS[id];
+    const verse = (chapterData[id + "|" + reference]?.verses || []).find((item) => item.number === verseNumber);
+    return '<section class="comparison-version' + selected + '" data-verse="' + escapeHtml(verseRef) + '" data-pane="' + paneIndex + '" dir="' + translation.direction + '"><div class="comparison-label">' + escapeHtml(translation.label) + "</div>" +
+      (verse ? '<div class="comparison-text"><sup class="verse-number">' + verse.number + "</sup>" + escapeHtml(verse.text) + "</div>" : '<div class="comparison-loading">Loading ' + escapeHtml(translation.label) + "...</div>") +
+    "</section>";
+  }).join("") + "</div>";
+}
+
 function renderPane(pane, paneIndex) {
   const translation = TRANSLATIONS[pane.translation];
   const loadedResult = chapterData[referenceKey(pane)];
@@ -247,27 +309,19 @@ function renderPane(pane, paneIndex) {
   const result = loadedResult || pane.fallback?.result;
   const displayTranslation = showingFallback ? TRANSLATIONS[pane.fallback.translation] : translation;
   const pericope = findPericope(pane.reference);
-  let verses = result?.verses || [];
-  if (pane.scope === "verse") verses = verses.filter((verse) => verse.number === Number(pane.reference.verse));
-  if (pane.scope === "pericope" && pericope.to) verses = verses.filter((verse) => verse.number >= pericope.from && verse.number <= pericope.to);
+  const verses = scopedVerses(pane, result?.verses || []);
   const currentRef = displayReference(pane.reference);
-  const classes = "reader-pane paper-" + state.paper + (displayTranslation.script ? " lang-" + displayTranslation.script : "") + (paneIndex === state.activePane ? " active-pane" : "");
+  const classes = "reader-pane paper-" + state.paper + " view-" + pane.view + (displayTranslation.script ? " lang-" + displayTranslation.script : "") + (paneIndex === state.activePane ? " active-pane" : "");
   const versionOptions = Object.entries(TRANSLATIONS).map(([id, item]) =>
     '<option value="' + id + '"' + (id === pane.translation ? " selected" : "") + (!isTranslationApplicable(id, pane.reference) ? " disabled" : "") + ">" + item.label + "</option>"
   ).join("");
   const offlineStatus = pane.loading ? '<span class="offline-status loading-status">' + icon("loader-circle") + "Loading " + translation.label + "</span>" : !navigator.onLine ? '<span class="offline-status">' + icon("wifi-off") + "Offline · " + translation.label + "</span>" : "";
-  const versesHtml = verses.length ? '<div class="verse-list">' + verses.map((verse) => {
-    const verseRef = pane.reference.book + " " + pane.reference.chapter + ":" + verse.number;
-    const highlight = state.highlights[verseRef] ? " highlight-" + state.highlights[verseRef] : "";
-    const selected = state.selectedVerse === verseRef ? " selected" : "";
-    return '<span class="verse' + highlight + selected + '" data-verse="' + escapeHtml(verseRef) + '" data-pane="' + paneIndex + '" dir="' + translation.direction + '">' +
-      '<sup class="verse-number">' + verse.number + "</sup>" + escapeHtml(verse.text) + '</span><span class="verse-spacer"> </span>';
-  }).join("") + "</div>" : emptyReader(displayTranslation, result);
+  const versesHtml = pane.view === "interlinear" ? interlinearMarkup(pane, paneIndex) : pane.view === "compare" ? comparisonMarkup(pane, paneIndex) : verses.length ? normalVersesMarkup(pane, paneIndex, verses, displayTranslation) : emptyReader(displayTranslation, result);
   const contextControl = pane.scope === "chapter"
     ? '<span class="chapter-context">Whole chapter</span>'
     : '<button class="show-chapter" data-action="show-whole-chapter" data-pane-index="' + paneIndex + '">' + icon("maximize-2") + "Show whole chapter</button>";
   return '<article class="' + classes + '" data-activate-pane="' + paneIndex + '">' + renderCanvasTabs(paneIndex) +
-    '<div class="pane-header"><div class="pane-topline"><select class="version-select" data-pane-version="' + paneIndex + '" aria-label="Bible version">' + versionOptions + "</select>" + offlineStatus + '</div>' +
+    '<div class="pane-header"><div class="pane-topline"><select class="version-select" data-pane-version="' + paneIndex + '" aria-label="Bible version">' + versionOptions + '</select><select class="reader-view-select" data-pane-view="' + paneIndex + '" aria-label="Reading layout"><option value="paragraph"' + (pane.view === "paragraph" ? " selected" : "") + '>Paragraph</option><option value="lines"' + (pane.view === "lines" ? " selected" : "") + '>One verse per line</option><option value="interlinear"' + (pane.view === "interlinear" ? " selected" : "") + '>Interlinear</option><option value="compare"' + (pane.view === "compare" ? " selected" : "") + (pane.scope !== "verse" ? " disabled" : "") + '>Compare versions</option></select>' + offlineStatus + '</div>' +
       '<div class="chapter-nav"><button class="chapter-arrow" data-chapter-nav="' + paneIndex + '|-1" title="Previous chapter">' + icon("chevron-left") + '</button><div>' +
       '<h1 class="chapter-title">' + escapeHtml(pane.reference.book) + " " + pane.reference.chapter + '</h1><p class="pane-meta">' + escapeHtml(displayTranslation.name) + " · " + escapeHtml(displayTranslation.language) + "</p></div>" +
       '<button class="chapter-arrow" data-chapter-nav="' + paneIndex + '|1" title="Next chapter">' + icon("chevron-right") + "</button></div></div>" +
@@ -329,7 +383,7 @@ function noteMarkup() {
           '<input class="color-picker" data-format="hiliteColor" type="color" value="#f5d675" title="Highlight color">' +
         '</div><div class="note-editor" contenteditable="true" data-note-editor="true" data-placeholder="Notice what the text is doing...">' + note.html + "</div>"
       : '<textarea class="markdown-editor" data-note-markdown="true" spellcheck="true">' + escapeHtml(markdown) + "</textarea>") +
-    '<div class="note-actions"><button class="button primary" data-action="save-note">' + icon("save") + "Save note</button>" +
+    '<div class="note-actions"><button class="button primary" data-action="save-note">' + icon("save") + "Save</button>" +
       '<button class="button" data-action="export-md">' + icon("file-down") + ".md</button>" +
       '<button class="button" data-action="export-pdf">' + icon("file-text") + "PDF</button>" +
       '<button class="button" data-action="obsidian">' + icon("folder-output") + "Obsidian</button></div>" +
@@ -390,6 +444,50 @@ function render() {
   if (window.lucide) window.lucide.createIcons();
 }
 
+async function loadChapterData(reference, translationId) {
+  const key = translationId + "|" + displayReference(reference);
+  if (chapterData[key]?.verses?.length) return chapterData[key];
+  const cached = await loadCachedChapter(key);
+  if (cached?.verses?.length) {
+    chapterData[key] = cached;
+    return cached;
+  }
+  const result = await getChapter(reference, translationId);
+  chapterData[key] = result;
+  if (result.verses?.length && translationId !== "NET") saveCachedChapter(key, result);
+  return result;
+}
+
+function interlinearTranslation(reference) {
+  return isOldTestament(reference.book) ? "WLC" : "SBLGNT";
+}
+
+async function loadSupplementalVersions(pane) {
+  let translations = [];
+  if (pane.view === "interlinear") translations = ["NET", interlinearTranslation(pane.reference)];
+  if (pane.view === "compare" && pane.scope === "verse") {
+    translations = Object.keys(TRANSLATIONS).filter((id) => isTranslationApplicable(id, pane.reference));
+  }
+  if (!translations.length) return;
+  await Promise.all(translations.map((id) => loadChapterData(pane.reference, id)));
+  render();
+}
+
+async function prepareBrowseVerses() {
+  const pane = activePane();
+  const reference = { book: state.browseBook || pane.reference.book, chapter: state.browseChapter, verse: 1 };
+  const key = pane.translation + "|" + displayReference(reference);
+  browseVerseLoadKey = key;
+  browseVerseCount = null;
+  browseVerseMessage = "Loading verses...";
+  render();
+  const result = await loadChapterData(reference, pane.translation);
+  if (browseVerseLoadKey !== key || state.browseStage !== "verses") return;
+  browseVerseCount = result.verses?.length || 0;
+  browseVerseMessage = result.error ? (result.message || "Could not load verses.") : "No verses found.";
+  render();
+}
+
 async function loadPane(pane) {
   updateOfflineVersion(pane);
   const key = referenceKey(pane);
@@ -398,21 +496,18 @@ async function loadPane(pane) {
     pane.fallback = null;
     render();
     revealArrivalIfReady(pane, key);
+    loadSupplementalVersions(pane);
     return;
   }
   pane.loading = true;
   render();
-  const cached = await loadCachedChapter(key);
-  if (cached?.verses?.length) chapterData[key] = cached;
-  else {
-    chapterData[key] = await getChapter(pane.reference, pane.translation);
-    if (chapterData[key].verses?.length && pane.translation !== "NET") saveCachedChapter(key, chapterData[key]);
-  }
+  await loadChapterData(pane.reference, pane.translation);
   if (referenceKey(pane) !== key) return;
   pane.loading = false;
   pane.fallback = null;
   render();
   revealArrivalIfReady(pane, key);
+  loadSupplementalVersions(pane);
 }
 
 function loadVisiblePanes() {
@@ -473,6 +568,7 @@ function changePaneReference(paneIndex, next) {
   pane.reference = next;
   pane.label = displayReference(next);
   pane.scope = "chapter";
+  if (pane.view === "compare") pane.view = "paragraph";
   updateOfflineVersion(pane);
   state.activePane = paneIndex;
   state.selectedVerse = null;
@@ -505,6 +601,7 @@ function activateSplitFocus(scope) {
   focusedPane.translation = sourcePane.translation;
   focusedPane.label = displayReference(reference);
   focusedPane.scope = scope;
+  focusedPane.view = scope === "verse" ? "compare" : (sourcePane.view === "compare" ? "paragraph" : sourcePane.view);
   focusedPane.fallback = null;
   state.split = true;
   state.activePane = targetIndex;
@@ -607,10 +704,14 @@ app.addEventListener("click", async (event) => {
     if (state.browseBook === nextBook && state.browseStage !== "books") {
       state.browseBook = "";
       state.browseStage = "books";
+      browseVerseCount = null;
+      browseVerseMessage = "Loading verses...";
     } else {
       state.browseBook = nextBook;
       state.browseChapter = 1;
       state.browseStage = "chapters";
+      browseVerseCount = null;
+      browseVerseMessage = "Loading verses...";
     }
     state.navigatorOpen = true;
     persist(); render(); return;
@@ -618,14 +719,22 @@ app.addEventListener("click", async (event) => {
   const browseChapter = event.target.closest("[data-browse-chapter]");
   if (browseChapter) {
     const nextChapter = Number(browseChapter.dataset.browseChapter);
+    let loadVerses = false;
     if (state.browseStage === "verses" && Number(state.browseChapter) === nextChapter) {
       state.browseStage = "chapters";
+      browseVerseCount = null;
+      browseVerseMessage = "Loading verses...";
     } else {
       state.browseChapter = nextChapter;
       state.browseStage = "verses";
+      browseVerseCount = null;
+      browseVerseMessage = "Loading verses...";
+      loadVerses = true;
     }
     state.navigatorOpen = true;
-    persist(); render(); return;
+    persist(); render();
+    if (loadVerses) prepareBrowseVerses();
+    return;
   }
   const browseVerse = event.target.closest("[data-browse-verse]");
   if (browseVerse) {
@@ -677,6 +786,8 @@ app.addEventListener("click", async (event) => {
       state.browseStage = "books";
       state.browseBook = "";
       state.browseChapter = activePane().reference.chapter;
+      browseVerseCount = null;
+      browseVerseMessage = "Loading verses...";
     }
     persist(); render(); return;
   }
@@ -696,6 +807,7 @@ app.addEventListener("click", async (event) => {
     const paneIndex = Number(actionTarget.dataset.paneIndex);
     const pane = paneAt(paneIndex);
     pane.scope = "chapter";
+    if (pane.view === "compare") pane.view = "paragraph";
     state.activePane = paneIndex;
     state.selectedVerse = null;
     persist(); render(); return;
@@ -710,6 +822,14 @@ app.addEventListener("click", async (event) => {
 });
 
 app.addEventListener("change", (event) => {
+  const paneView = event.target.dataset.paneView;
+  if (paneView !== undefined) {
+    const pane = paneAt(Number(paneView));
+    pane.view = event.target.value;
+    if (pane.view === "compare" && pane.scope !== "verse") pane.view = "paragraph";
+    state.activePane = Number(paneView);
+    persist(); render(); loadVisiblePanes(); return;
+  }
   const paneVersion = event.target.dataset.paneVersion;
   if (paneVersion !== undefined) {
     const pane = paneAt(Number(paneVersion));
