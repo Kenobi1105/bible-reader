@@ -60,7 +60,6 @@ let pendingArrivals = new Map();
 let browseVerseCount = null;
 let browseVerseLoadKey = null;
 let browseVerseMessage = "Loading verses...";
-let multiSelectMode = false;
 let multiVerseSelection = [];
 let syncScrollLocked = false;
 let lastSyncedScrollReference = "";
@@ -117,7 +116,6 @@ function clearVerseSelection() {
   const changed = Boolean(state.selectedVerse || popoverVerse || multiVerseSelection.length);
   state.selectedVerse = null;
   popoverVerse = null;
-  multiSelectMode = false;
   multiVerseSelection = [];
   return changed;
 }
@@ -127,7 +125,7 @@ function isVerseSelected(reference) {
 }
 
 function highlightedVerseReferences() {
-  return multiSelectMode && multiVerseSelection.length ? multiVerseSelection : (popoverVerse ? [popoverVerse] : []);
+  return multiVerseSelection.length ? multiVerseSelection : (popoverVerse ? [popoverVerse] : []);
 }
 
 function queueArrival(paneIndex, reference) {
@@ -316,7 +314,8 @@ function comparisonMarkup(pane, paneIndex) {
     const translation = TRANSLATIONS[id];
     const verse = (chapterData[id + "|" + reference]?.verses || []).find((item) => item.number === verseNumber);
     const isCuv = id === "CUVS" || id === "CUVT";
-    const label = escapeHtml(translation.label) + (isCuv ? '<button class="comparison-switch" data-action="toggle-compare-cuv" data-pane-index="' + paneIndex + '" title="Switch Chinese Union Version" aria-label="Switch Chinese Union Version">' + icon("chevrons-left-right") + "</button>" : "");
+    const cuvPicker = '<span class="cuv-card-picker"><button data-action="cycle-compare-cuv" data-direction="-1" data-pane-index="' + paneIndex + '" title="Show CUV Simplified" aria-label="Show CUV Simplified">' + icon("chevron-left") + '</button><span class="cuv-dot ' + (id === "CUVS" ? "active" : "") + '"></span><span class="cuv-dot ' + (id === "CUVT" ? "active" : "") + '"></span><button data-action="cycle-compare-cuv" data-direction="1" data-pane-index="' + paneIndex + '" title="Show CUV Traditional" aria-label="Show CUV Traditional">' + icon("chevron-right") + "</button></span>";
+    const label = escapeHtml(translation.label) + (isCuv ? cuvPicker : "");
     return '<section class="comparison-version' + selected + '" data-verse="' + escapeHtml(verseRef) + '" data-pane="' + paneIndex + '" dir="' + translation.direction + '"><div class="comparison-label">' + label + "</div>" +
       (verse ? '<div class="comparison-text"><sup class="verse-number">' + verse.number + "</sup>" + escapeHtml(verse.text) + "</div>" : '<div class="comparison-loading">Loading ' + escapeHtml(translation.label) + "...</div>") +
     "</section>";
@@ -346,7 +345,8 @@ function renderPane(pane, paneIndex) {
       '<div class="chapter-nav"><button class="chapter-arrow" data-chapter-nav="' + paneIndex + '|-1" title="Previous chapter">' + icon("chevron-left") + '</button><div>' +
       '<h1 class="chapter-title">' + escapeHtml(pane.reference.book) + " " + pane.reference.chapter + '</h1><p class="pane-meta">' + escapeHtml(displayTranslation.name) + " · " + escapeHtml(displayTranslation.language) + "</p></div>" +
       '<button class="chapter-arrow" data-chapter-nav="' + paneIndex + '|1" title="Next chapter">' + icon("chevron-right") + "</button></div></div>" +
-    '<div class="passage-choice"><span>' + escapeHtml(pericope.title) + "</span>" + contextControl + "</div>" + versesHtml +
+    '<div class="passage-choice"><span>' + escapeHtml(pericope.title) + "</span>" + contextControl + "</div>" +
+    (pane.scope === "pericope" ? '<div class="pericope-heading">' + escapeHtml(pericope.title) + "</div>" : "") + versesHtml +
     '<div class="source-status ' + (result?.error ? "warning" : "") + '">' + icon(result?.error ? "circle-alert" : "cloud-check") +
       "<span>" + escapeHtml(pane.loading ? "Loading " + translation.label + " while keeping the current text visible..." : result?.message || "Loading chapter...") + "</span></div>" +
   "</article>";
@@ -445,10 +445,9 @@ function renderPopover() {
   const color = state.highlights[popoverVerse] || "";
   const colors = [["gold", "#f5d675"], ["rose", "#e9a6a1"], ["sage", "#b9c99a"], ["blue", "#afc7d8"], ["violet", "#c7b4d8"]];
   const selectedCount = multiVerseSelection.length || 1;
-  return '<div class="verse-popover visible" id="verse-popover"><div class="popover-reference">' + escapeHtml(popoverVerse) + (multiSelectMode ? '<span class="selection-count">' + selectedCount + " selected</span>" : "") + "</div>" +
+  return '<div class="verse-popover visible" id="verse-popover"><div class="popover-reference">' + escapeHtml(popoverVerse) + (selectedCount > 1 ? '<span class="selection-count">' + selectedCount + " selected</span>" : "") + "</div>" +
     '<div class="swatches">' + colors.map((item) => '<button class="swatch ' + (color === item[0] ? "active" : "") + '" style="background:' + item[1] + '" data-highlight="' + item[0] + '" title="Highlight ' + item[0] + '"></button>').join("") + "</div>" +
-    '<div class="popover-actions"><button class="format-button popover-icon-action ' + (multiSelectMode ? "active" : "") + '" data-action="toggle-multi-select" title="Select multiple verses" aria-label="Select multiple verses">' + icon("list-plus") + "</button>" +
-      '<button class="format-button popover-icon-action" data-action="bookmark" title="Save verse" aria-label="Save verse">' + icon("bookmark-plus") + "</button>" +
+    '<div class="popover-actions"><button class="format-button popover-icon-action" data-action="bookmark" title="Save verse" aria-label="Save verse">' + icon("bookmark-plus") + "</button>" +
       '<button class="format-button popover-icon-action" data-action="copy-verse" title="Copy reference" aria-label="Copy reference">' + icon("copy") + "</button>" +
       '<button class="format-button popover-icon-action" data-action="open-note" title="Open note" aria-label="Open note">' + icon("notebook-pen") + "</button>" +
       '<button class="format-button popover-icon-action" data-action="clear-highlight" title="Clear highlight" aria-label="Clear highlight">' + icon("eraser") + "</button></div>" +
@@ -569,25 +568,6 @@ function placeVersePopover(rect) {
 
 function openVersePopover(reference, target) {
   const rect = target.getBoundingClientRect();
-  if (multiSelectMode) {
-    if (multiVerseSelection.includes(reference)) {
-      multiVerseSelection = multiVerseSelection.filter((item) => item !== reference);
-    } else {
-      multiVerseSelection.push(reference);
-    }
-    if (!multiVerseSelection.length) {
-      clearVerseSelection();
-      persist();
-      render();
-      return;
-    }
-    popoverVerse = multiVerseSelection[0];
-    state.selectedVerse = popoverVerse;
-    render();
-    placeVersePopover(rect);
-    persist();
-    return;
-  }
   if (state.selectedVerse === reference && popoverVerse === reference) {
     clearVerseSelection();
     persist();
@@ -596,6 +576,27 @@ function openVersePopover(reference, target) {
   }
   state.selectedVerse = reference;
   popoverVerse = reference;
+  render();
+  placeVersePopover(rect);
+  persist();
+}
+
+function toggleMultiVerse(reference, target) {
+  const rect = target.getBoundingClientRect();
+  if (!multiVerseSelection.length && popoverVerse) multiVerseSelection = [popoverVerse];
+  if (multiVerseSelection.includes(reference)) {
+    multiVerseSelection = multiVerseSelection.filter((item) => item !== reference);
+  } else {
+    multiVerseSelection.push(reference);
+  }
+  if (!multiVerseSelection.length) {
+    clearVerseSelection();
+    persist();
+    render();
+    return;
+  }
+  popoverVerse = multiVerseSelection[0];
+  state.selectedVerse = popoverVerse;
   render();
   placeVersePopover(rect);
   persist();
@@ -835,20 +836,8 @@ app.addEventListener("click", async (event) => {
   const verse = event.target.closest("[data-verse]");
   if (verse) {
     state.activePane = Number(verse.dataset.pane);
-    const endpoint = parseReference(verse.dataset.verse);
-    const anchor = popoverVerse && parseReference(popoverVerse);
-    if (event.shiftKey && anchor && endpoint && anchor.book === endpoint.book && anchor.chapter === endpoint.chapter) {
-      const from = Math.min(anchor.verse, endpoint.verse);
-      const to = Math.max(anchor.verse, endpoint.verse);
-      multiSelectMode = true;
-      multiVerseSelection = Array.from({ length: to - from + 1 }, (_, index) => anchor.book + " " + anchor.chapter + ":" + (from + index));
-      state.selectedVerse = popoverVerse;
-      const rect = verse.getBoundingClientRect();
-      render();
-      placeVersePopover(rect);
-      persist();
-      return;
-    }
+    if (event.ctrlKey) return toggleMultiVerse(verse.dataset.verse, verse);
+    multiVerseSelection = [];
     openVersePopover(verse.dataset.verse, verse);
     return;
   }
@@ -908,15 +897,10 @@ app.addEventListener("click", async (event) => {
   if (action === "toggle-study") { state.studyOpen = !state.studyOpen; persist(); render(); return; }
   if (action === "settings") return openSettings(actionTarget);
   if (action === "dark-mode") { state.dark = !state.dark; persist(); render(); return; }
-  if (action === "toggle-compare-cuv") {
+  if (action === "cycle-compare-cuv") {
     const pane = paneAt(Number(actionTarget.dataset.paneIndex));
-    pane.compareCuv = pane.compareCuv === "CUVT" ? "CUVS" : "CUVT";
+    pane.compareCuv = Number(actionTarget.dataset.direction) < 0 ? "CUVS" : "CUVT";
     persist(); render(); loadVisiblePanes(); return;
-  }
-  if (action === "toggle-multi-select") {
-    multiSelectMode = !multiSelectMode;
-    multiVerseSelection = multiSelectMode ? [popoverVerse] : [];
-    persist(); render(); return;
   }
   if (action === "bookmark") {
     if (!state.bookmarks.some((item) => item.reference === popoverVerse)) state.bookmarks.push({ id: createRecordId("bookmark"), reference: popoverVerse, label: "Saved passage" });
@@ -926,7 +910,7 @@ app.addEventListener("click", async (event) => {
   if (action === "open-note") { state.studyTab = "notes"; state.studyOpen = true; popoverVerse = null; persist(); render(); return; }
   if (action === "clear-highlight") {
     highlightedVerseReferences().forEach((reference) => delete state.highlights[reference]);
-    persist(); popoverVerse = null; state.selectedVerse = null; multiSelectMode = false; multiVerseSelection = []; render(); return;
+    persist(); popoverVerse = null; state.selectedVerse = null; multiVerseSelection = []; render(); return;
   }
   if (action === "focus-pericope") return activateSplitFocus("pericope");
   if (action === "focus-verse") return activateSplitFocus("verse");

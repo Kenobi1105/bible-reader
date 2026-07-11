@@ -37,6 +37,7 @@ const pericopes = [
   { book: "John", chapter: 3, from: 1, to: 21, title: "Jesus and Nicodemus" },
   { book: "John", chapter: 4, from: 1, to: 42, title: "Jesus and the Samaritan Woman" },
   { book: "Acts", chapter: 2, from: 1, to: 41, title: "The Coming of the Holy Spirit" },
+  { book: "Acts", chapter: 11, from: 1, to: 18, title: "Peter Defends His Actions to the Jerusalem Church" },
   { book: "Romans", chapter: 8, from: 1, to: 17, title: "Life Through the Spirit" },
   { book: "Romans", chapter: 8, from: 18, to: 39, title: "Future Glory" },
   { book: "Philippians", chapter: 2, from: 1, to: 11, title: "Imitating Christ's Humility" },
