@@ -63,7 +63,6 @@ let browseVerseMessage = "Loading verses...";
 let multiVerseSelection = [];
 let syncScrollLocked = false;
 let lastSyncedScrollReference = "";
-let pendingSyncedScroll = null;
 
 function icon(name) {
   return '<i data-lucide="' + name + '"></i>';
@@ -269,7 +268,7 @@ function emptyReader(translation, result) {
 function scopedVerses(pane, verses) {
   const pericope = findPericope(pane.reference);
   if (pane.scope === "verse") return verses.filter((verse) => verse.number === Number(pane.reference.verse));
-  if (pane.scope === "pericope" && pericope.to) return verses.filter((verse) => verse.number >= pericope.from && verse.number <= pericope.to);
+  if (pane.scope === "pericope") return pericope ? verses.filter((verse) => verse.number >= pericope.from && verse.number <= pericope.to) : [];
   return verses;
 }
 
@@ -329,6 +328,7 @@ function renderPane(pane, paneIndex) {
   const result = loadedResult || pane.fallback?.result;
   const displayTranslation = showingFallback ? TRANSLATIONS[pane.fallback.translation] : translation;
   const pericope = findPericope(pane.reference);
+  const passageTitle = pericope?.title || pane.reference.book + " " + pane.reference.chapter;
   const verses = scopedVerses(pane, result?.verses || []);
   const currentRef = displayReference(pane.reference);
   const classes = "reader-pane paper-" + state.paper + " view-" + pane.view + (displayTranslation.script ? " lang-" + displayTranslation.script : "") + (paneIndex === state.activePane ? " active-pane" : "");
@@ -345,8 +345,8 @@ function renderPane(pane, paneIndex) {
       '<div class="chapter-nav"><button class="chapter-arrow" data-chapter-nav="' + paneIndex + '|-1" title="Previous chapter">' + icon("chevron-left") + '</button><div>' +
       '<h1 class="chapter-title">' + escapeHtml(pane.reference.book) + " " + pane.reference.chapter + '</h1><p class="pane-meta">' + escapeHtml(displayTranslation.name) + " · " + escapeHtml(displayTranslation.language) + "</p></div>" +
       '<button class="chapter-arrow" data-chapter-nav="' + paneIndex + '|1" title="Next chapter">' + icon("chevron-right") + "</button></div></div>" +
-    '<div class="passage-choice"><span>' + escapeHtml(pericope.title) + "</span>" + contextControl + "</div>" +
-    (pane.scope === "pericope" ? '<div class="pericope-heading">' + escapeHtml(pericope.title) + "</div>" : "") + versesHtml +
+    '<div class="passage-choice"><span>' + escapeHtml(passageTitle) + "</span>" + contextControl + "</div>" +
+    (pane.scope === "pericope" && pericope ? '<div class="pericope-heading">' + escapeHtml(pericope.title) + "</div>" : "") + versesHtml +
     '<div class="source-status ' + (result?.error ? "warning" : "") + '">' + icon(result?.error ? "circle-alert" : "cloud-check") +
       "<span>" + escapeHtml(pane.loading ? "Loading " + translation.label + " while keeping the current text visible..." : result?.message || "Loading chapter...") + "</span></div>" +
   "</article>";
@@ -674,6 +674,10 @@ function activateSplitFocus(scope) {
   const sourcePane = paneAt(sourceIndex);
   const reference = parseReference(popoverVerse);
   if (!reference) return;
+  if (scope === "pericope" && !findPericope(reference)) {
+    showToast("This pericope has not been indexed yet.");
+    return;
+  }
 
   const focusedPane = paneAt(targetIndex);
   focusedPane.reference = reference;
@@ -986,20 +990,19 @@ app.addEventListener("scroll", (event) => {
   const reference = currentVerse && parseReference(currentVerse.dataset.verse);
   if (!reference) return;
   const referenceLabel = displayReference(reference);
-  if (pendingSyncedScroll && pendingSyncedScroll.paneIndex === sourceIndex && pendingSyncedScroll.reference === referenceLabel) {
-    pendingSyncedScroll = null;
-    return;
-  }
   const key = sourceIndex + "|" + referenceLabel;
   if (key === lastSyncedScrollReference) return;
   lastSyncedScrollReference = key;
+  const targetIndex = sourceIndex === 0 ? 1 : 0;
+  const targetPane = paneAt(targetIndex);
+  if (targetPane.reference.book !== reference.book || Number(targetPane.reference.chapter) !== Number(reference.chapter)) return;
+  const targetList = document.querySelector('[data-activate-pane="' + targetIndex + '"] .verse-list');
+  const targetVerse = document.querySelector('[data-activate-pane="' + targetIndex + '"] [data-verse="' + referenceLabel + '"]');
+  if (!targetList || !targetVerse) return;
   syncScrollLocked = true;
-  pendingSyncedScroll = { paneIndex: sourceIndex === 0 ? 1 : 0, reference: referenceLabel };
-  syncPartnerPane(sourceIndex, reference);
-  persist();
-  render();
-  loadVisiblePanes();
-  setTimeout(() => { syncScrollLocked = false; }, 420);
+  const offset = targetList.scrollTop + targetVerse.getBoundingClientRect().top - targetList.getBoundingClientRect().top - 16;
+  targetList.scrollTo({ top: Math.max(0, offset), behavior: "auto" });
+  setTimeout(() => { syncScrollLocked = false; }, 80);
 }, true);
 
 app.addEventListener("mousedown", (event) => {

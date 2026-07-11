@@ -1,3 +1,5 @@
+import { NET_PERICOPE_BOUNDARIES } from "./net-pericope-index.js";
+
 export const BOOKS = [
   ["Genesis", 50], ["Exodus", 40], ["Leviticus", 27], ["Numbers", 36], ["Deuteronomy", 34],
   ["Joshua", 24], ["Judges", 21], ["Ruth", 4], ["1 Samuel", 31], ["2 Samuel", 24],
@@ -25,7 +27,7 @@ const aliases = {
   jas: "James", pet: "Peter", rev: "Revelation", re: "Revelation"
 };
 
-const pericopes = [
+const titledPericopes = [
   { book: "Genesis", chapter: 1, from: 1, to: 31, title: "The Creation" },
   { book: "Genesis", chapter: 12, from: 1, to: 9, title: "The Call of Abram" },
   { book: "Psalms", chapter: 23, from: 1, to: 6, title: "The Shepherd Psalm" },
@@ -38,6 +40,8 @@ const pericopes = [
   { book: "John", chapter: 4, from: 1, to: 42, title: "Jesus and the Samaritan Woman" },
   { book: "Acts", chapter: 2, from: 1, to: 41, title: "The Coming of the Holy Spirit" },
   { book: "Acts", chapter: 11, from: 1, to: 18, title: "Peter Defends His Actions to the Jerusalem Church" },
+  { book: "Acts", chapter: 11, from: 19, to: 26, title: "The Church in Antioch" },
+  { book: "Acts", chapter: 11, from: 27, to: 30, title: "Famine Relief for Judea" },
   { book: "Romans", chapter: 8, from: 1, to: 17, title: "Life Through the Spirit" },
   { book: "Romans", chapter: 8, from: 18, to: 39, title: "Future Glory" },
   { book: "Philippians", chapter: 2, from: 1, to: 11, title: "Imitating Christ's Humility" },
@@ -78,18 +82,22 @@ export function displayReference(reference) {
 }
 
 export function findPericope(reference) {
-  const match = pericopes.find((item) =>
+  const boundary = NET_PERICOPE_BOUNDARIES.find((item) =>
     item.book === reference.book &&
     item.chapter === Number(reference.chapter) &&
     Number(reference.verse || 1) >= item.from &&
     Number(reference.verse || 1) <= item.to
   );
-  return match || {
-    book: reference.book,
-    chapter: Number(reference.chapter),
-    from: Math.max(1, Number(reference.verse || 1) - 2),
-    to: Number(reference.verse || 1) + 3,
-    title: "Focused passage"
+  if (!boundary) return null;
+  const titledMatch = titledPericopes.find((item) =>
+    item.book === boundary.book &&
+    item.chapter === boundary.chapter &&
+    item.from === boundary.from &&
+    item.to === boundary.to
+  );
+  return {
+    ...boundary,
+    title: titledMatch?.title || boundary.book + " " + boundary.chapter + ":" + boundary.from + "-" + boundary.to
   };
 }
 
