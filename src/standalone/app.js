@@ -1,6 +1,7 @@
 import { BOOKS, chapterCount, displayReference, isOldTestament, moveChapter, parseReference } from "../core/references.js";
 import { TRANSLATIONS, getChapter } from "../core/bible-sources.js";
 import { downloadFile, loadCachedChapter, loadState, saveCachedChapter, saveState } from "../core/storage.js?v=2";
+import { isMorphologyTranslation, loadMorphologyBook, morphologySourceLabel } from "../core/morphology.js";
 
 const app = document.querySelector("#app");
 const defaultState = {
@@ -55,8 +56,11 @@ state.bookmarks = (state.bookmarks || []).map((bookmark, index) => ({
 state.canvases?.forEach((canvas) => canvas.tabs?.forEach((pane) => {
   if (!pane.view) pane.view = "paragraph";
   if (pane.scope === "pericope") pane.scope = "chapter";
+  pane.parseEnabled = Boolean(pane.parseEnabled);
 }));
 let chapterData = {};
+let morphologyData = {};
+let morphologyLoads = new Map();
 let popoverVerse = null;
 let toastTimer = null;
 let pendingArrivals = new Map();
@@ -277,13 +281,63 @@ function verseReference(pane, number) {
   return pane.reference.book + " " + pane.reference.chapter + ":" + number;
 }
 
-function normalVersesMarkup(pane, paneIndex, verses, translation) {
+function morphologyKey(id, book) {
+  return id + "|" + book;
+}
+
+function displayedMorphologyIds(pane) {
+  if (pane.view === "interlinear") return [interlinearTranslation(pane.reference)].filter(isMorphologyTranslation);
+  if (pane.view === "compare") return comparisonTranslationIds(pane).filter(isMorphologyTranslation);
+  return [pane.translation].filter(isMorphologyTranslation);
+}
+
+function parsedVerseMarkup(pane, translationId, verse) {
+  if (!pane.parseEnabled || !isMorphologyTranslation(translationId)) return escapeHtml(verse.text);
+  const morphology = morphologyData[morphologyKey(translationId, pane.reference.book)];
+  const words = morphology?.verses?.[pane.reference.chapter + ":" + verse.number];
+  if (!words?.length) return escapeHtml(verse.text);
+  return words.map((word) => {
+    const title = "Lemma: " + (word.lemma || "Not listed") + "\nParsing: " + (word.description || "Not listed") + "\nCode: " + (word.morphology || "Not listed");
+    return '<span class="morph-word" tabindex="0" title="' + escapeHtml(title) + '">' + escapeHtml(word.surface) + "</span>";
+  }).join(" ");
+}
+
+function morphologyStatus(pane) {
+  if (!pane.parseEnabled) return "";
+  const ids = displayedMorphologyIds(pane);
+  if (!ids.length) return "";
+  const loading = ids.some((id) => morphologyLoads.has(morphologyKey(id, pane.reference.book)));
+  if (loading) return "Loading parsing data...";
+  const failed = ids.some((id) => morphologyData[morphologyKey(id, pane.reference.book)]?.error);
+  if (failed) return "Parsing data is unavailable for this book.";
+  return "Parsing: " + ids.map(morphologySourceLabel).join(" + ");
+}
+
+function queueMorphology(id, book) {
+  const key = morphologyKey(id, book);
+  if (morphologyData[key] || morphologyLoads.has(key)) return;
+  const load = loadMorphologyBook(id, book)
+    .then((result) => { morphologyData[key] = result; })
+    .catch(() => { morphologyData[key] = { error: true, verses: {} }; })
+    .finally(() => {
+      morphologyLoads.delete(key);
+      render();
+    });
+  morphologyLoads.set(key, load);
+}
+
+function ensurePaneMorphology(pane) {
+  if (!pane.parseEnabled) return;
+  displayedMorphologyIds(pane).forEach((id) => queueMorphology(id, pane.reference.book));
+}
+
+function normalVersesMarkup(pane, paneIndex, verses, translation, translationId) {
   return '<div class="verse-list">' + verses.map((verse) => {
     const verseRef = verseReference(pane, verse.number);
     const highlight = state.highlights[verseRef] ? " highlight-" + state.highlights[verseRef] : "";
     const selected = isVerseSelected(verseRef) ? " selected" : "";
     return '<span class="verse' + highlight + selected + '" data-verse="' + escapeHtml(verseRef) + '" data-pane="' + paneIndex + '" dir="' + translation.direction + '">' +
-      '<sup class="verse-number">' + verse.number + "</sup>" + escapeHtml(verse.text) + '</span><span class="verse-spacer"> </span>';
+      '<sup class="verse-number">' + verse.number + "</sup>" + parsedVerseMarkup(pane, translationId, verse) + '</span><span class="verse-spacer"> </span>';
   }).join("") + "</div>";
 }
 
@@ -301,7 +355,7 @@ function interlinearMarkup(pane, paneIndex) {
     const selected = isVerseSelected(verseRef) ? " selected" : "";
     return '<div class="interlinear-verse' + selected + '" data-verse="' + escapeHtml(verseRef) + '" data-pane="' + paneIndex + '">' +
       '<div class="interlinear-line top-line lang-' + (topTranslation.script || "latin") + '" dir="' + topTranslation.direction + '"><span class="interlinear-label">' + topId + '</span><sup class="verse-number">' + verse.number + "</sup>" + escapeHtml(verse.text) + "</div>" +
-      '<div class="interlinear-line original-line lang-' + TRANSLATIONS[originalId].script + '" dir="' + TRANSLATIONS[originalId].direction + '"><span class="interlinear-label">' + originalId + "</span>" + (original ? '<sup class="verse-number">' + original.number + "</sup>" + escapeHtml(original.text) : '<span class="interlinear-loading">Loading ' + originalId + "...</span>") + "</div>" +
+      '<div class="interlinear-line original-line lang-' + TRANSLATIONS[originalId].script + '" dir="' + TRANSLATIONS[originalId].direction + '"><span class="interlinear-label">' + originalId + "</span>" + (original ? '<sup class="verse-number">' + original.number + "</sup>" + parsedVerseMarkup(pane, originalId, original) : '<span class="interlinear-loading">Loading ' + originalId + "...</span>") + "</div>" +
     "</div>";
   }).join("") + "</div>";
 }
@@ -319,7 +373,7 @@ function comparisonMarkup(pane, paneIndex) {
     const cuvPicker = '<span class="cuv-card-picker"><button data-action="cycle-compare-cuv" data-direction="-1" data-pane-index="' + paneIndex + '" title="Show CUV Simplified" aria-label="Show CUV Simplified">' + icon("chevron-left") + '</button><span class="cuv-dot ' + (id === "CUVS" ? "active" : "") + '"></span><span class="cuv-dot ' + (id === "CUVT" ? "active" : "") + '"></span><button data-action="cycle-compare-cuv" data-direction="1" data-pane-index="' + paneIndex + '" title="Show CUV Traditional" aria-label="Show CUV Traditional">' + icon("chevron-right") + "</button></span>";
     const label = escapeHtml(translation.label) + (isCuv ? cuvPicker : "");
     return '<section class="comparison-version' + selected + '" data-verse="' + escapeHtml(verseRef) + '" data-pane="' + paneIndex + '" dir="' + translation.direction + '"><div class="comparison-label">' + label + "</div>" +
-      (verse ? '<div class="comparison-text"><sup class="verse-number">' + verse.number + "</sup>" + escapeHtml(verse.text) + "</div>" : '<div class="comparison-loading">Loading ' + escapeHtml(translation.label) + "...</div>") +
+      (verse ? '<div class="comparison-text"><sup class="verse-number">' + verse.number + "</sup>" + parsedVerseMarkup(pane, id, verse) + "</div>" : '<div class="comparison-loading">Loading ' + escapeHtml(translation.label) + "...</div>") +
     "</section>";
   }).join("") + "</div>";
 }
@@ -332,6 +386,10 @@ function renderPane(pane, paneIndex) {
   const displayTranslation = showingFallback ? TRANSLATIONS[pane.fallback.translation] : translation;
   const verses = scopedVerses(pane, result?.verses || []);
   const currentRef = displayReference(pane.reference);
+  const morphologyIds = displayedMorphologyIds(pane);
+  const parseControl = morphologyIds.length
+    ? '<label class="parse-toggle" title="Show word lemma and grammar when you hover"><input type="checkbox" data-pane-parse="' + paneIndex + '"' + (pane.parseEnabled ? " checked" : "") + '><span>Parse</span></label>'
+    : "";
   const classes = "reader-pane paper-" + state.paper + " view-" + pane.view + (displayTranslation.script ? " lang-" + displayTranslation.script : "") + (paneIndex === state.activePane ? " active-pane" : "");
   const versionOptions = Object.entries(TRANSLATIONS).map(([id, item]) => {
     const unavailable = !isTranslationApplicable(id, pane.reference);
@@ -340,18 +398,19 @@ function renderPane(pane, paneIndex) {
   }
   ).join("");
   const offlineStatus = pane.loading ? '<span class="offline-status loading-status">' + icon("loader-circle") + "Loading " + translation.label + "</span>" : !navigator.onLine ? '<span class="offline-status">' + icon("wifi-off") + "Offline · " + translation.label + "</span>" : "";
-  const versesHtml = pane.view === "interlinear" ? interlinearMarkup(pane, paneIndex) : pane.view === "compare" ? comparisonMarkup(pane, paneIndex) : verses.length ? normalVersesMarkup(pane, paneIndex, verses, displayTranslation) : emptyReader(displayTranslation, result);
+  const displayTranslationId = showingFallback ? pane.fallback.translation : pane.translation;
+  const versesHtml = pane.view === "interlinear" ? interlinearMarkup(pane, paneIndex) : pane.view === "compare" ? comparisonMarkup(pane, paneIndex) : verses.length ? normalVersesMarkup(pane, paneIndex, verses, displayTranslation, displayTranslationId) : emptyReader(displayTranslation, result);
   const contextControl = pane.scope === "verse"
     ? '<div class="passage-choice chapter-return"><button class="show-chapter" data-action="show-whole-chapter" data-pane-index="' + paneIndex + '">' + icon("maximize-2") + "Show whole chapter</button></div>"
     : "";
   return '<article class="' + classes + '" data-activate-pane="' + paneIndex + '">' + renderCanvasTabs(paneIndex) +
-    '<div class="pane-header"><div class="pane-topline"><select class="version-select" data-pane-version="' + paneIndex + '" aria-label="Bible version">' + versionOptions + '</select><select class="reader-view-select" data-pane-view="' + paneIndex + '" aria-label="Reading layout"><option value="paragraph"' + (pane.view === "paragraph" ? " selected" : "") + '>Paragraph</option><option value="lines"' + (pane.view === "lines" ? " selected" : "") + '>One verse per line</option><option value="interlinear"' + (pane.view === "interlinear" ? " selected" : "") + '>Interlinear</option><option value="compare"' + (pane.view === "compare" ? " selected" : "") + (pane.scope !== "verse" ? " disabled" : "") + '>Compare versions</option></select>' + offlineStatus + '</div>' +
+    '<div class="pane-header"><div class="pane-topline"><select class="version-select" data-pane-version="' + paneIndex + '" aria-label="Bible version">' + versionOptions + '</select><select class="reader-view-select" data-pane-view="' + paneIndex + '" aria-label="Reading layout"><option value="paragraph"' + (pane.view === "paragraph" ? " selected" : "") + '>Paragraph</option><option value="lines"' + (pane.view === "lines" ? " selected" : "") + '>One verse per line</option><option value="interlinear"' + (pane.view === "interlinear" ? " selected" : "") + '>Interlinear</option><option value="compare"' + (pane.view === "compare" ? " selected" : "") + (pane.scope !== "verse" ? " disabled" : "") + '>Compare versions</option></select>' + parseControl + offlineStatus + '</div>' +
       '<div class="chapter-nav"><button class="chapter-arrow" data-chapter-nav="' + paneIndex + '|-1" title="Previous chapter">' + icon("chevron-left") + '</button><div>' +
       '<h1 class="chapter-title">' + escapeHtml(pane.reference.book) + " " + pane.reference.chapter + '</h1><p class="pane-meta">' + escapeHtml(displayTranslation.name) + " · " + escapeHtml(displayTranslation.language) + "</p></div>" +
       '<button class="chapter-arrow" data-chapter-nav="' + paneIndex + '|1" title="Next chapter">' + icon("chevron-right") + "</button></div></div>" +
     contextControl + versesHtml +
     '<div class="source-status ' + (result?.error ? "warning" : "") + '">' + icon(result?.error ? "circle-alert" : "cloud-check") +
-      "<span>" + escapeHtml(pane.loading ? "Loading " + translation.label + " while keeping the current text visible..." : result?.message || "Loading chapter...") + "</span></div>" +
+      "<span>" + escapeHtml(morphologyStatus(pane) || (pane.loading ? "Loading " + translation.label + " while keeping the current text visible..." : result?.message || "Loading chapter...")) + "</span></div>" +
   "</article>";
 }
 
@@ -536,6 +595,7 @@ async function loadPane(pane) {
     render();
     revealArrivalIfReady(pane, key);
     loadSupplementalVersions(pane);
+    ensurePaneMorphology(pane);
     return;
   }
   pane.loading = true;
@@ -547,6 +607,7 @@ async function loadPane(pane) {
   render();
   revealArrivalIfReady(pane, key);
   loadSupplementalVersions(pane);
+  ensurePaneMorphology(pane);
 }
 
 function loadVisiblePanes() {
@@ -942,6 +1003,16 @@ app.addEventListener("click", async (event) => {
 });
 
 app.addEventListener("change", (event) => {
+  const paneParse = event.target.dataset.paneParse;
+  if (paneParse !== undefined) {
+    const pane = paneAt(Number(paneParse));
+    pane.parseEnabled = event.target.checked;
+    state.activePane = Number(paneParse);
+    persist();
+    render();
+    ensurePaneMorphology(pane);
+    return;
+  }
   const paneView = event.target.dataset.paneView;
   if (paneView !== undefined) {
     const pane = paneAt(Number(paneView));
