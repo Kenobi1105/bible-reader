@@ -290,15 +290,17 @@ function normalVersesMarkup(pane, paneIndex, verses, translation) {
 function interlinearMarkup(pane, paneIndex) {
   const reference = displayReference(pane.reference);
   const originalId = interlinearTranslation(pane.reference);
-  const netVerses = scopedVerses(pane, chapterData["NET|" + reference]?.verses || []);
+  const topId = pane.translation;
+  const topTranslation = TRANSLATIONS[topId];
+  const topVerses = scopedVerses(pane, chapterData[topId + "|" + reference]?.verses || []);
   const originalByNumber = new Map(scopedVerses(pane, chapterData[originalId + "|" + reference]?.verses || []).map((verse) => [verse.number, verse]));
-  if (!netVerses.length) return emptyReader(TRANSLATIONS.NET, { message: "Loading the interlinear pair..." });
-  return '<div class="verse-list interlinear-list">' + netVerses.map((verse) => {
+  if (!topVerses.length) return emptyReader(topTranslation, { message: "Loading the interlinear pair..." });
+  return '<div class="verse-list interlinear-list">' + topVerses.map((verse) => {
     const verseRef = verseReference(pane, verse.number);
     const original = originalByNumber.get(verse.number);
     const selected = isVerseSelected(verseRef) ? " selected" : "";
     return '<div class="interlinear-verse' + selected + '" data-verse="' + escapeHtml(verseRef) + '" data-pane="' + paneIndex + '">' +
-      '<div class="interlinear-line net-line"><span class="interlinear-label">NET</span><sup class="verse-number">' + verse.number + "</sup>" + escapeHtml(verse.text) + "</div>" +
+      '<div class="interlinear-line top-line lang-' + (topTranslation.script || "latin") + '" dir="' + topTranslation.direction + '"><span class="interlinear-label">' + topId + '</span><sup class="verse-number">' + verse.number + "</sup>" + escapeHtml(verse.text) + "</div>" +
       '<div class="interlinear-line original-line lang-' + TRANSLATIONS[originalId].script + '" dir="' + TRANSLATIONS[originalId].direction + '"><span class="interlinear-label">' + originalId + "</span>" + (original ? '<sup class="verse-number">' + original.number + "</sup>" + escapeHtml(original.text) : '<span class="interlinear-loading">Loading ' + originalId + "...</span>") + "</div>" +
     "</div>";
   }).join("") + "</div>";
@@ -331,8 +333,11 @@ function renderPane(pane, paneIndex) {
   const verses = scopedVerses(pane, result?.verses || []);
   const currentRef = displayReference(pane.reference);
   const classes = "reader-pane paper-" + state.paper + " view-" + pane.view + (displayTranslation.script ? " lang-" + displayTranslation.script : "") + (paneIndex === state.activePane ? " active-pane" : "");
-  const versionOptions = Object.entries(TRANSLATIONS).map(([id, item]) =>
-    '<option value="' + id + '"' + (id === pane.translation ? " selected" : "") + (!isTranslationApplicable(id, pane.reference) ? " disabled" : "") + ">" + item.label + "</option>"
+  const versionOptions = Object.entries(TRANSLATIONS).map(([id, item]) => {
+    const unavailable = !isTranslationApplicable(id, pane.reference);
+    const duplicateOriginal = pane.view === "interlinear" && id === interlinearTranslation(pane.reference);
+    return '<option value="' + id + '"' + (id === pane.translation ? " selected" : "") + (unavailable || duplicateOriginal ? " disabled" : "") + ">" + item.label + "</option>";
+  }
   ).join("");
   const offlineStatus = pane.loading ? '<span class="offline-status loading-status">' + icon("loader-circle") + "Loading " + translation.label + "</span>" : !navigator.onLine ? '<span class="offline-status">' + icon("wifi-off") + "Offline · " + translation.label + "</span>" : "";
   const versesHtml = pane.view === "interlinear" ? interlinearMarkup(pane, paneIndex) : pane.view === "compare" ? comparisonMarkup(pane, paneIndex) : verses.length ? normalVersesMarkup(pane, paneIndex, verses, displayTranslation) : emptyReader(displayTranslation, result);
@@ -389,7 +394,7 @@ function noteMarkup() {
   const markdown = note.markdown || htmlToMarkdown(note.html);
   return '<div class="note-panel">' +
     '<div class="note-reference"><span>' + icon("link-2") + " " + escapeHtml(selectedReference()) + '</span>' +
-      '<button class="button small" data-action="note-mode">' + (state.noteMode === "rich" ? "Rich Text" : "Markdown") + "</button></div>" +
+      '<span class="note-header-actions"><button class="button small" data-action="note-mode">' + (state.noteMode === "rich" ? "Rich Text" : "Markdown") + '</button><button class="format-button note-delete" data-action="delete-note" title="Delete note" aria-label="Delete note">' + icon("trash-2") + "</button></span></div>" +
     (state.noteMode === "rich"
       ? '<div class="toolbar">' +
           '<button class="format-button" data-format="bold" title="Bold"><strong>B</strong></button>' +
@@ -498,7 +503,7 @@ function comparisonTranslationIds(pane) {
 
 async function loadSupplementalVersions(pane) {
   let translations = [];
-  if (pane.view === "interlinear") translations = ["NET", interlinearTranslation(pane.reference)];
+  if (pane.view === "interlinear") translations = [...new Set([pane.translation, interlinearTranslation(pane.reference)])];
   if (pane.view === "compare" && pane.scope === "verse") {
     translations = comparisonTranslationIds(pane);
   }
@@ -831,11 +836,15 @@ app.addEventListener("click", async (event) => {
     persist(); render(); return;
   }
   const verse = event.target.closest("[data-verse]");
-  if (verse) {
+  if (verse && !event.target.closest("[data-action]")) {
     state.activePane = Number(verse.dataset.pane);
+    if (paneAt(state.activePane).view === "compare") return;
     if (event.ctrlKey) return toggleMultiVerse(verse.dataset.verse, verse);
-    multiVerseSelection = [];
-    openVersePopover(verse.dataset.verse, verse);
+    if (clearVerseSelection()) {
+      document.querySelector("#verse-popover")?.classList.remove("visible");
+      document.querySelectorAll(".verse.selected, .interlinear-verse.selected, .comparison-version.selected").forEach((item) => item.classList.remove("selected"));
+      persist();
+    }
     return;
   }
   const pane = event.target.closest("[data-activate-pane]");
@@ -921,6 +930,12 @@ app.addEventListener("click", async (event) => {
     syncNote(); state.noteMode = state.noteMode === "rich" ? "markdown" : "rich"; persist(); render(); return;
   }
   if (action === "save-note") { syncNote(); showToast("Note saved on this device."); return; }
+  if (action === "delete-note") {
+    const reference = selectedReference();
+    if (!window.confirm("Delete the note for " + reference + "?")) return;
+    delete state.notes[reference];
+    persist(); render(); showToast("Note deleted."); return;
+  }
   if (action === "export-md") { downloadFile(selectedReference().replace(/[^a-z0-9]+/gi, "-") + ".md", noteExport(), "text/markdown;charset=utf-8"); return; }
   if (action === "export-pdf") return exportPdf();
   if (action === "obsidian") return saveToObsidian();
@@ -932,6 +947,7 @@ app.addEventListener("change", (event) => {
     const pane = paneAt(Number(paneView));
     pane.view = event.target.value;
     if (pane.view === "compare" && pane.scope !== "verse") pane.view = "paragraph";
+    if (pane.view === "interlinear" && pane.translation === interlinearTranslation(pane.reference)) pane.translation = "NET";
     state.activePane = Number(paneView);
     persist(); render(); loadVisiblePanes(); return;
   }
@@ -963,6 +979,40 @@ app.addEventListener("change", (event) => {
 
 app.addEventListener("input", (event) => {
   if (event.target.matches("[data-note-editor], [data-note-markdown]")) syncNote();
+});
+
+app.addEventListener("dblclick", (event) => {
+  const verse = event.target.closest("[data-verse]");
+  if (!verse || event.target.closest("[data-action]")) return;
+  const paneIndex = Number(verse.dataset.pane);
+  if (paneAt(paneIndex).view === "compare") return;
+  state.activePane = paneIndex;
+  if (event.ctrlKey) return toggleMultiVerse(verse.dataset.verse, verse);
+  multiVerseSelection = [];
+  openVersePopover(verse.dataset.verse, verse);
+});
+
+app.addEventListener("mouseup", (event) => {
+  if (event.button !== 0 || event.detail !== 1) return;
+  const verse = event.target.closest("[data-verse]");
+  if (!verse || paneAt(Number(verse.dataset.pane)).view === "compare") return;
+  const selection = window.getSelection();
+  if (!selection || !selection.isCollapsed) return;
+  const range = document.caretRangeFromPoint?.(event.clientX, event.clientY);
+  const node = range?.startContainer;
+  if (!node || node.nodeType !== Node.TEXT_NODE) return;
+  const text = node.textContent || "";
+  const isWordCharacter = (character) => /[\p{L}\p{M}\p{N}'’]/u.test(character);
+  let start = range.startOffset;
+  let end = range.startOffset;
+  while (start > 0 && isWordCharacter(text[start - 1])) start -= 1;
+  while (end < text.length && isWordCharacter(text[end])) end += 1;
+  if (start === end) return;
+  const wordRange = document.createRange();
+  wordRange.setStart(node, start);
+  wordRange.setEnd(node, end);
+  selection.removeAllRanges();
+  selection.addRange(wordRange);
 });
 
 app.addEventListener("scroll", (event) => {

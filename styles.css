@@ -508,9 +508,12 @@ body.dark .reveal-title { border-color: var(--border); }
 .original-line .interlinear-label { right: 0; left: auto; direction: ltr; }
 .interlinear-line.original-line[dir="ltr"] { padding-left: 33px; padding-right: 0; text-align: left; font-family: "Noto Serif", Georgia, serif; }
 .interlinear-line.original-line[dir="ltr"] .interlinear-label { left: 0; right: auto; }
+.interlinear-line.top-line[dir="rtl"] { padding-right: 33px; padding-left: 0; text-align: right; font-family: "Noto Sans Hebrew", serif; }
+.interlinear-line.top-line[dir="rtl"] .interlinear-label { right: 0; left: auto; }
 .interlinear-loading, .comparison-loading { color: var(--muted); font-family: "DM Sans", sans-serif; font-size: 12px; }
 .comparison-list { display: grid; gap: 10px; }
 .comparison-version { padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.view-compare .comparison-version { cursor: text; user-select: text; }
 .comparison-version[dir="rtl"] { text-align: right; }
 .comparison-version[dir="rtl"] .comparison-switch { margin-left: 0; margin-right: 6px; }
 .comparison-version:hover { border-color: #c7b9ca; background: #fcfafd; }
@@ -540,6 +543,9 @@ body.dark .reveal-title { border-color: var(--border); }
 .note-actions .note-action-icon.primary:hover { background: var(--accent-dark); }
 .note-reference > span:first-child { display: inline-flex; align-items: center; gap: 5px; }
 .note-reference > span:first-child svg { width: 18px; height: 18px; flex: 0 0 auto; }
+.note-header-actions { display: inline-flex; align-items: center; gap: 6px; }
+.note-delete { display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); }
+.note-delete:hover { border-color: #c98b8b; background: #fff1f1; color: #a24d4d; }
 .note-panel { display: flex; flex: 1 1 auto; flex-direction: column; overflow: hidden; }
 .note-panel .note-reference, .note-panel .toolbar, .note-panel .note-actions { flex: 0 0 auto; }
 .note-panel .note-editor, .note-panel .markdown-editor { flex: 1 1 auto; min-height: 0; }
@@ -553,6 +559,8 @@ body.dark .reveal-title { border-color: var(--border); }
 .popover-icon-action.active, .popover-icon-action.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
 .popover-icon-action:hover { background: var(--surface-muted); }
 .popover-icon-action.primary:hover, .popover-icon-action.active:hover { background: var(--accent-dark); }
+.reference-browser .browse-chip,
+.reference-browser .number-chip { display: grid; width: 100%; min-height: 0; aspect-ratio: 1; place-items: center; padding: 3px; text-align: center; }
 
 @media (min-width: 761px) {
   .reader-shell { --reader-header-height: 70px; height: 100vh; overflow: hidden; }
