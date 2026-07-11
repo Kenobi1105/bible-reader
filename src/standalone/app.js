@@ -127,7 +127,8 @@ function revealArrivalIfReady(pane, key) {
     if (!verse) return;
     const scrollArea = verse.closest(".verse-list");
     if (scrollArea) {
-      scrollArea.scrollTo({ top: Math.max(0, verse.offsetTop - 16), behavior: "smooth" });
+      const scrollTop = scrollArea.scrollTop + verse.getBoundingClientRect().top - scrollArea.getBoundingClientRect().top - 16;
+      scrollArea.scrollTo({ top: Math.max(0, scrollTop), behavior: "smooth" });
     } else {
       verse.scrollIntoView({ block: "start", behavior: "smooth" });
     }
@@ -383,10 +384,10 @@ function noteMarkup() {
           '<input class="color-picker" data-format="hiliteColor" type="color" value="#f5d675" title="Highlight color">' +
         '</div><div class="note-editor" contenteditable="true" data-note-editor="true" data-placeholder="Notice what the text is doing...">' + note.html + "</div>"
       : '<textarea class="markdown-editor" data-note-markdown="true" spellcheck="true">' + escapeHtml(markdown) + "</textarea>") +
-    '<div class="note-actions"><button class="button primary" data-action="save-note">' + icon("save") + "Save</button>" +
-      '<button class="button" data-action="export-md">' + icon("file-down") + ".md</button>" +
-      '<button class="button" data-action="export-pdf">' + icon("file-text") + "PDF</button>" +
-      '<button class="button" data-action="obsidian">' + icon("folder-output") + "Obsidian</button></div>" +
+    '<div class="note-actions"><button class="format-button note-action-icon primary" data-action="save-note" title="Save note" aria-label="Save note">' + icon("save") + "</button>" +
+      '<button class="format-button note-action-icon" data-action="export-md" title="Export Markdown" aria-label="Export Markdown">' + icon("file-code-2") + "</button>" +
+      '<button class="format-button note-action-icon" data-action="export-pdf" title="Export PDF" aria-label="Export PDF">' + icon("file-text") + "</button>" +
+      '<button class="format-button note-action-icon" data-action="obsidian" title="Save to Obsidian" aria-label="Save to Obsidian">' + icon("folder-output") + "</button></div>" +
   "</div>";
 }
 
@@ -755,7 +756,15 @@ app.addEventListener("click", async (event) => {
   const verse = event.target.closest("[data-verse]");
   if (verse) { state.activePane = Number(verse.dataset.pane); openVersePopover(verse.dataset.verse, verse); return; }
   const pane = event.target.closest("[data-activate-pane]");
-  if (pane && !event.target.closest("button, select, input, textarea")) { state.activePane = Number(pane.dataset.activatePane); persist(); render(); return; }
+  if (pane && !event.target.closest("button, select, input, textarea, [contenteditable=true]")) {
+    const paneIndex = Number(pane.dataset.activatePane);
+    if (state.activePane !== paneIndex) {
+      state.activePane = paneIndex;
+      document.querySelectorAll(".reader-pane[data-activate-pane]").forEach((item) => item.classList.toggle("active-pane", Number(item.dataset.activatePane) === paneIndex));
+      persist();
+    }
+    return;
+  }
   const scope = event.target.closest("[data-scope]");
   if (scope) { activePane().scope = scope.dataset.scope; persist(); render(); return; }
   const study = event.target.closest("[data-study-tab], [data-study-open]");
@@ -773,7 +782,7 @@ app.addEventListener("click", async (event) => {
   if (paper) { state.paper = paper.dataset.paper; persist(); render(); openSettings(event.target); return; }
   const actionTarget = event.target.closest("[data-action]");
   if (!actionTarget) {
-    if (event.target.closest("select, input, textarea")) { persist(); return; }
+    if (event.target.closest("select, input, textarea, [contenteditable=true]")) { persist(); return; }
     if (!event.target.closest("#verse-popover") && !event.target.closest("#settings-menu")) closeOverlays();
     persist(); render();
     return;

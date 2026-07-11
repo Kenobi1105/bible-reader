@@ -522,7 +522,12 @@ body.dark .reveal-title { border-color: var(--border); }
 .toolbar .format-button { display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; padding: 0; border-radius: 6px; }
 .toolbar .format-button svg { display: block; width: 14px; height: 14px; }
 .toolbar .format-button[data-format="insertUnorderedList"] svg, .toolbar .format-button[data-format^="formatBlock"] svg, .toolbar .format-button[data-format="createLink"] svg { color: var(--accent); }
-.pane-grid.split .reader-pane.active-pane { border-color: rgba(73,53,72,.44); box-shadow: 0 0 0 2px rgba(73,53,72,.12), 0 14px 34px rgba(73,53,72,.14); }
+.pane-grid.split .reader-pane.active-pane { border-color: rgba(196,145,35,.68); box-shadow: 0 0 0 2px rgba(240,208,143,.5), 0 14px 34px rgba(196,145,35,.18); }
+.note-actions { gap: 6px; }
+.note-actions .note-action-icon { display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--border); border-radius: 6px; color: var(--accent); }
+.note-actions .note-action-icon svg { width: 14px; height: 14px; }
+.note-actions .note-action-icon.primary { border-color: var(--accent); background: var(--accent); color: #fff; }
+.note-actions .note-action-icon.primary:hover { background: var(--accent-dark); }
 
 @media (min-width: 761px) {
   .reader-shell { --reader-header-height: 70px; height: 100vh; overflow: hidden; }
