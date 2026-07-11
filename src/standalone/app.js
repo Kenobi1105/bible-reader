@@ -11,6 +11,7 @@ const defaultState = {
   ],
   activePane: 0,
   split: false,
+  paneSync: false,
   studyOpen: false,
   navigatorOpen: false,
   browseStage: "books",
@@ -46,6 +47,7 @@ function createRecordId(prefix) {
 }
 
 state.selectedVerse = null;
+state.paneSync = Boolean(state.paneSync);
 state.bookmarks = (state.bookmarks || []).map((bookmark, index) => ({
   ...bookmark,
   id: bookmark.id || "bookmark-legacy-" + index + "-" + Date.now()
@@ -54,12 +56,15 @@ state.canvases?.forEach((canvas) => canvas.tabs?.forEach((pane) => { if (!pane.v
 let chapterData = {};
 let popoverVerse = null;
 let toastTimer = null;
-let pendingArrival = null;
+let pendingArrivals = new Map();
 let browseVerseCount = null;
 let browseVerseLoadKey = null;
 let browseVerseMessage = "Loading verses...";
 let multiSelectMode = false;
 let multiVerseSelection = [];
+let syncScrollLocked = false;
+let lastSyncedScrollReference = "";
+let pendingSyncedScroll = null;
 
 function icon(name) {
   return '<i data-lucide="' + name + '"></i>';
@@ -126,16 +131,16 @@ function highlightedVerseReferences() {
 }
 
 function queueArrival(paneIndex, reference) {
-  pendingArrival = { paneIndex, reference: displayReference(reference) };
+  pendingArrivals.set(paneIndex, displayReference(reference));
 }
 
 function revealArrivalIfReady(pane, key) {
   const paneIndex = state.canvases.findIndex((canvas) => canvas.tabs.some((tab) => tab.id === pane.id));
-  if (!pendingArrival || pendingArrival.paneIndex !== paneIndex || key !== referenceKey(pane)) return;
-  const arrival = pendingArrival;
-  pendingArrival = null;
+  const arrival = pendingArrivals.get(paneIndex);
+  if (!arrival || key !== referenceKey(pane)) return;
+  pendingArrivals.delete(paneIndex);
   requestAnimationFrame(() => {
-    const verse = document.querySelector('[data-activate-pane="' + arrival.paneIndex + '"] [data-verse="' + arrival.reference + '"]');
+    const verse = document.querySelector('[data-activate-pane="' + paneIndex + '"] [data-verse="' + arrival + '"]');
     if (!verse) return;
     const scrollArea = verse.closest(".verse-list");
     if (scrollArea) {
@@ -250,6 +255,7 @@ function renderWorkspaceHeader() {
       '<button class="browse-trigger" data-action="toggle-browser" title="Browse book, chapter, and verse">' + icon("chevron-down") + '<span>Browse</span></button></div>' +
       '<button class="icon-button ' + (state.studyOpen ? "active" : "") + '" data-action="toggle-study" title="Study tools">' + icon("notebook-pen") + "</button>" +
       '<button class="icon-button ' + (state.split ? "active" : "") + '" data-action="split" title="Toggle split screen">' + icon("columns-2") + "</button>" +
+      (state.split ? '<button class="icon-button ' + (state.paneSync ? "active" : "") + '" data-action="toggle-pane-sync" title="' + (state.paneSync ? "Unsync reader panes" : "Sync reader panes") + '">' + icon(state.paneSync ? "link-2" : "unlink-2") + "</button>" : "") +
       '<button class="icon-button" data-action="settings" title="Reader settings">' + icon("sliders-horizontal") + "</button></div>" +
     (state.split ? '<div class="mobile-pane-switch"><button data-mobile-pane="0" class="' + (state.activePane === 0 ? "active" : "") + '">' + paneAt(0).translation + '</button><button data-mobile-pane="1" class="' + (state.activePane === 1 ? "active" : "") + '">' + paneAt(1).translation + "</button></div>" : "") +
   "</header>";
@@ -305,11 +311,13 @@ function comparisonMarkup(pane, paneIndex) {
   const verseNumber = Number(pane.reference.verse);
   const verseRef = verseReference(pane, verseNumber);
   const selected = isVerseSelected(verseRef) ? " selected" : "";
-  const translations = Object.keys(TRANSLATIONS).filter((id) => isTranslationApplicable(id, pane.reference));
+  const translations = comparisonTranslationIds(pane);
   return '<div class="verse-list comparison-list">' + translations.map((id) => {
     const translation = TRANSLATIONS[id];
     const verse = (chapterData[id + "|" + reference]?.verses || []).find((item) => item.number === verseNumber);
-    return '<section class="comparison-version' + selected + '" data-verse="' + escapeHtml(verseRef) + '" data-pane="' + paneIndex + '" dir="' + translation.direction + '"><div class="comparison-label">' + escapeHtml(translation.label) + "</div>" +
+    const isCuv = id === "CUVS" || id === "CUVT";
+    const label = escapeHtml(translation.label) + (isCuv ? '<button class="comparison-switch" data-action="toggle-compare-cuv" data-pane-index="' + paneIndex + '" title="Switch Chinese Union Version" aria-label="Switch Chinese Union Version">' + icon("chevrons-left-right") + "</button>" : "");
+    return '<section class="comparison-version' + selected + '" data-verse="' + escapeHtml(verseRef) + '" data-pane="' + paneIndex + '" dir="' + translation.direction + '"><div class="comparison-label">' + label + "</div>" +
       (verse ? '<div class="comparison-text"><sup class="verse-number">' + verse.number + "</sup>" + escapeHtml(verse.text) + "</div>" : '<div class="comparison-loading">Loading ' + escapeHtml(translation.label) + "...</div>") +
     "</section>";
   }).join("") + "</div>";
@@ -487,11 +495,16 @@ function interlinearTranslation(reference) {
   return isOldTestament(reference.book) ? "WLC" : "SBLGNT";
 }
 
+function comparisonTranslationIds(pane) {
+  const originals = isOldTestament(pane.reference.book) ? ["WLC", "LXX"] : ["SBLGNT"];
+  return ["NET", ...originals, pane.compareCuv || "CUVS"];
+}
+
 async function loadSupplementalVersions(pane) {
   let translations = [];
   if (pane.view === "interlinear") translations = ["NET", interlinearTranslation(pane.reference)];
   if (pane.view === "compare" && pane.scope === "verse") {
-    translations = Object.keys(TRANSLATIONS).filter((id) => isTranslationApplicable(id, pane.reference));
+    translations = comparisonTranslationIds(pane);
   }
   if (!translations.length) return;
   await Promise.all(translations.map((id) => loadChapterData(pane.reference, id)));
@@ -547,6 +560,13 @@ function closeOverlays() {
   if (settings) settings.classList.remove("visible");
 }
 
+function placeVersePopover(rect) {
+  const popover = document.querySelector("#verse-popover");
+  if (!popover) return;
+  popover.style.left = Math.min(window.innerWidth - 268, Math.max(12, rect.left)) + "px";
+  popover.style.top = Math.min(window.innerHeight - 145, rect.bottom + 8) + "px";
+}
+
 function openVersePopover(reference, target) {
   const rect = target.getBoundingClientRect();
   if (multiSelectMode) {
@@ -564,9 +584,7 @@ function openVersePopover(reference, target) {
     popoverVerse = multiVerseSelection[0];
     state.selectedVerse = popoverVerse;
     render();
-    const multiPopover = document.querySelector("#verse-popover");
-    multiPopover.style.left = Math.min(window.innerWidth - 268, Math.max(12, rect.left)) + "px";
-    multiPopover.style.top = Math.min(window.innerHeight - 145, rect.bottom + 8) + "px";
+    placeVersePopover(rect);
     persist();
     return;
   }
@@ -579,9 +597,7 @@ function openVersePopover(reference, target) {
   state.selectedVerse = reference;
   popoverVerse = reference;
   render();
-  const popover = document.querySelector("#verse-popover");
-  popover.style.left = Math.min(window.innerWidth - 268, Math.max(12, rect.left)) + "px";
-  popover.style.top = Math.min(window.innerHeight - 145, rect.bottom + 8) + "px";
+  placeVersePopover(rect);
   persist();
 }
 
@@ -609,6 +625,21 @@ function newCanvasTab(paneIndex = state.activePane) {
   loadVisiblePanes();
 }
 
+function syncPartnerPane(sourceIndex, next) {
+  if (!state.split || !state.paneSync) return false;
+  const targetIndex = sourceIndex === 0 ? 1 : 0;
+  const sourcePane = paneAt(sourceIndex);
+  const targetPane = paneAt(targetIndex);
+  const targetScope = targetPane.view === "compare" ? "verse" : sourcePane.scope;
+  targetPane.reference = { ...next };
+  targetPane.label = displayReference(next);
+  targetPane.scope = targetScope;
+  targetPane.fallback = null;
+  updateOfflineVersion(targetPane);
+  queueArrival(targetIndex, next);
+  return true;
+}
+
 function changePaneReference(paneIndex, next) {
   const pane = paneAt(paneIndex);
   pane.reference = next;
@@ -620,6 +651,7 @@ function changePaneReference(paneIndex, next) {
   state.selectedVerse = null;
   state.navigatorOpen = false;
   queueArrival(paneIndex, next);
+  syncPartnerPane(paneIndex, next);
   persist();
   render();
   loadVisiblePanes();
@@ -801,7 +833,25 @@ app.addEventListener("click", async (event) => {
     persist(); render(); return;
   }
   const verse = event.target.closest("[data-verse]");
-  if (verse) { state.activePane = Number(verse.dataset.pane); openVersePopover(verse.dataset.verse, verse); return; }
+  if (verse) {
+    state.activePane = Number(verse.dataset.pane);
+    const endpoint = parseReference(verse.dataset.verse);
+    const anchor = popoverVerse && parseReference(popoverVerse);
+    if (event.shiftKey && anchor && endpoint && anchor.book === endpoint.book && anchor.chapter === endpoint.chapter) {
+      const from = Math.min(anchor.verse, endpoint.verse);
+      const to = Math.max(anchor.verse, endpoint.verse);
+      multiSelectMode = true;
+      multiVerseSelection = Array.from({ length: to - from + 1 }, (_, index) => anchor.book + " " + anchor.chapter + ":" + (from + index));
+      state.selectedVerse = popoverVerse;
+      const rect = verse.getBoundingClientRect();
+      render();
+      placeVersePopover(rect);
+      persist();
+      return;
+    }
+    openVersePopover(verse.dataset.verse, verse);
+    return;
+  }
   const pane = event.target.closest("[data-activate-pane]");
   if (pane && !event.target.closest("button, select, input, textarea, [contenteditable=true]")) {
     const paneIndex = Number(pane.dataset.activatePane);
@@ -839,6 +889,11 @@ app.addEventListener("click", async (event) => {
   }
   const action = actionTarget.dataset.action;
   if (action === "split") { state.split = !state.split; persist(); render(); loadVisiblePanes(); return; }
+  if (action === "toggle-pane-sync") {
+    state.paneSync = !state.paneSync;
+    if (state.paneSync) syncPartnerPane(state.activePane, activePane().reference);
+    persist(); render(); loadVisiblePanes(); return;
+  }
   if (action === "toggle-browser") {
     state.navigatorOpen = !state.navigatorOpen;
     if (state.navigatorOpen) {
@@ -853,6 +908,11 @@ app.addEventListener("click", async (event) => {
   if (action === "toggle-study") { state.studyOpen = !state.studyOpen; persist(); render(); return; }
   if (action === "settings") return openSettings(actionTarget);
   if (action === "dark-mode") { state.dark = !state.dark; persist(); render(); return; }
+  if (action === "toggle-compare-cuv") {
+    const pane = paneAt(Number(actionTarget.dataset.paneIndex));
+    pane.compareCuv = pane.compareCuv === "CUVT" ? "CUVS" : "CUVT";
+    persist(); render(); loadVisiblePanes(); return;
+  }
   if (action === "toggle-multi-select") {
     multiSelectMode = !multiSelectMode;
     multiVerseSelection = multiSelectMode ? [popoverVerse] : [];
@@ -926,6 +986,37 @@ app.addEventListener("change", (event) => {
 app.addEventListener("input", (event) => {
   if (event.target.matches("[data-note-editor], [data-note-markdown]")) syncNote();
 });
+
+app.addEventListener("scroll", (event) => {
+  const list = event.target;
+  if (!(list instanceof Element) || !list.matches(".verse-list") || !state.split || !state.paneSync || syncScrollLocked) return;
+  const readerPane = list.closest("[data-activate-pane]");
+  if (!readerPane) return;
+  const sourceIndex = Number(readerPane.dataset.activatePane);
+  const listTop = list.getBoundingClientRect().top;
+  const verses = Array.from(list.querySelectorAll("[data-verse]"));
+  const currentVerse = verses.reduce((closest, item) => {
+    const distance = Math.abs(item.getBoundingClientRect().top - listTop);
+    return !closest || distance < closest.distance ? { item, distance } : closest;
+  }, null)?.item;
+  const reference = currentVerse && parseReference(currentVerse.dataset.verse);
+  if (!reference) return;
+  const referenceLabel = displayReference(reference);
+  if (pendingSyncedScroll && pendingSyncedScroll.paneIndex === sourceIndex && pendingSyncedScroll.reference === referenceLabel) {
+    pendingSyncedScroll = null;
+    return;
+  }
+  const key = sourceIndex + "|" + referenceLabel;
+  if (key === lastSyncedScrollReference) return;
+  lastSyncedScrollReference = key;
+  syncScrollLocked = true;
+  pendingSyncedScroll = { paneIndex: sourceIndex === 0 ? 1 : 0, reference: referenceLabel };
+  syncPartnerPane(sourceIndex, reference);
+  persist();
+  render();
+  loadVisiblePanes();
+  setTimeout(() => { syncScrollLocked = false; }, 420);
+}, true);
 
 app.addEventListener("mousedown", (event) => {
   if (event.target.closest("button[data-format]")) event.preventDefault();

@@ -86,9 +86,9 @@ export function findPericope(reference) {
   return match || {
     book: reference.book,
     chapter: Number(reference.chapter),
-    from: 1,
-    to: null,
-    title: reference.book + " " + reference.chapter
+    from: Math.max(1, Number(reference.verse || 1) - 2),
+    to: Number(reference.verse || 1) + 3,
+    title: "Focused passage"
   };
 }
 
