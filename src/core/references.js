@@ -1,5 +1,3 @@
-import { NET_PERICOPE_BOUNDARIES } from "./net-pericope-index.js";
-
 export const BOOKS = [
   ["Genesis", 50], ["Exodus", 40], ["Leviticus", 27], ["Numbers", 36], ["Deuteronomy", 34],
   ["Joshua", 24], ["Judges", 21], ["Ruth", 4], ["1 Samuel", 31], ["2 Samuel", 24],
@@ -26,27 +24,6 @@ const aliases = {
   thess: "Thessalonians", tim: "Timothy", philem: "Philemon", heb: "Hebrews",
   jas: "James", pet: "Peter", rev: "Revelation", re: "Revelation"
 };
-
-const titledPericopes = [
-  { book: "Genesis", chapter: 1, from: 1, to: 31, title: "The Creation" },
-  { book: "Genesis", chapter: 12, from: 1, to: 9, title: "The Call of Abram" },
-  { book: "Psalms", chapter: 23, from: 1, to: 6, title: "The Shepherd Psalm" },
-  { book: "Matthew", chapter: 5, from: 1, to: 12, title: "The Beatitudes" },
-  { book: "Luke", chapter: 2, from: 1, to: 20, title: "The Birth of Jesus" },
-  { book: "John", chapter: 1, from: 1, to: 18, title: "The Word Became Flesh" },
-  { book: "John", chapter: 1, from: 19, to: 34, title: "The Testimony of John" },
-  { book: "John", chapter: 1, from: 35, to: 51, title: "The First Disciples" },
-  { book: "John", chapter: 3, from: 1, to: 21, title: "Jesus and Nicodemus" },
-  { book: "John", chapter: 4, from: 1, to: 42, title: "Jesus and the Samaritan Woman" },
-  { book: "Acts", chapter: 2, from: 1, to: 41, title: "The Coming of the Holy Spirit" },
-  { book: "Acts", chapter: 11, from: 1, to: 18, title: "Peter Defends His Actions to the Jerusalem Church" },
-  { book: "Acts", chapter: 11, from: 19, to: 26, title: "The Church in Antioch" },
-  { book: "Acts", chapter: 11, from: 27, to: 30, title: "Famine Relief for Judea" },
-  { book: "Romans", chapter: 8, from: 1, to: 17, title: "Life Through the Spirit" },
-  { book: "Romans", chapter: 8, from: 18, to: 39, title: "Future Glory" },
-  { book: "Philippians", chapter: 2, from: 1, to: 11, title: "Imitating Christ's Humility" },
-  { book: "Hebrews", chapter: 4, from: 12, to: 16, title: "The Living Word" }
-];
 
 export function chapterCount(book) {
   return BOOKS.find(([name]) => name === book)?.[1] ?? 1;
@@ -79,26 +56,6 @@ export function moveChapter(reference, direction) {
 
 export function displayReference(reference) {
   return reference.book + " " + reference.chapter + (reference.verse ? ":" + reference.verse : "");
-}
-
-export function findPericope(reference) {
-  const boundary = NET_PERICOPE_BOUNDARIES.find((item) =>
-    item.book === reference.book &&
-    item.chapter === Number(reference.chapter) &&
-    Number(reference.verse || 1) >= item.from &&
-    Number(reference.verse || 1) <= item.to
-  );
-  if (!boundary) return null;
-  const titledMatch = titledPericopes.find((item) =>
-    item.book === boundary.book &&
-    item.chapter === boundary.chapter &&
-    item.from === boundary.from &&
-    item.to === boundary.to
-  );
-  return {
-    ...boundary,
-    title: titledMatch?.title || boundary.book + " " + boundary.chapter + ":" + boundary.from + "-" + boundary.to
-  };
 }
 
 export function parseReference(input, fallback = { book: "John", chapter: 1, verse: 1 }) {

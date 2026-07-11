@@ -1,4 +1,4 @@
-import { BOOKS, chapterCount, displayReference, findPericope, isOldTestament, moveChapter, parseReference } from "../core/references.js";
+import { BOOKS, chapterCount, displayReference, isOldTestament, moveChapter, parseReference } from "../core/references.js";
 import { TRANSLATIONS, getChapter } from "../core/bible-sources.js";
 import { downloadFile, loadCachedChapter, loadState, saveCachedChapter, saveState } from "../core/storage.js?v=2";
 
@@ -52,7 +52,10 @@ state.bookmarks = (state.bookmarks || []).map((bookmark, index) => ({
   ...bookmark,
   id: bookmark.id || "bookmark-legacy-" + index + "-" + Date.now()
 }));
-state.canvases?.forEach((canvas) => canvas.tabs?.forEach((pane) => { if (!pane.view) pane.view = "paragraph"; }));
+state.canvases?.forEach((canvas) => canvas.tabs?.forEach((pane) => {
+  if (!pane.view) pane.view = "paragraph";
+  if (pane.scope === "pericope") pane.scope = "chapter";
+}));
 let chapterData = {};
 let popoverVerse = null;
 let toastTimer = null;
@@ -266,9 +269,7 @@ function emptyReader(translation, result) {
 }
 
 function scopedVerses(pane, verses) {
-  const pericope = findPericope(pane.reference);
   if (pane.scope === "verse") return verses.filter((verse) => verse.number === Number(pane.reference.verse));
-  if (pane.scope === "pericope") return pericope ? verses.filter((verse) => verse.number >= pericope.from && verse.number <= pericope.to) : [];
   return verses;
 }
 
@@ -327,8 +328,6 @@ function renderPane(pane, paneIndex) {
   const showingFallback = !loadedResult && pane.fallback?.result;
   const result = loadedResult || pane.fallback?.result;
   const displayTranslation = showingFallback ? TRANSLATIONS[pane.fallback.translation] : translation;
-  const pericope = findPericope(pane.reference);
-  const passageTitle = pericope?.title || pane.reference.book + " " + pane.reference.chapter;
   const verses = scopedVerses(pane, result?.verses || []);
   const currentRef = displayReference(pane.reference);
   const classes = "reader-pane paper-" + state.paper + " view-" + pane.view + (displayTranslation.script ? " lang-" + displayTranslation.script : "") + (paneIndex === state.activePane ? " active-pane" : "");
@@ -337,16 +336,15 @@ function renderPane(pane, paneIndex) {
   ).join("");
   const offlineStatus = pane.loading ? '<span class="offline-status loading-status">' + icon("loader-circle") + "Loading " + translation.label + "</span>" : !navigator.onLine ? '<span class="offline-status">' + icon("wifi-off") + "Offline · " + translation.label + "</span>" : "";
   const versesHtml = pane.view === "interlinear" ? interlinearMarkup(pane, paneIndex) : pane.view === "compare" ? comparisonMarkup(pane, paneIndex) : verses.length ? normalVersesMarkup(pane, paneIndex, verses, displayTranslation) : emptyReader(displayTranslation, result);
-  const contextControl = pane.scope === "chapter"
-    ? '<span class="chapter-context">Whole chapter</span>'
-    : '<button class="show-chapter" data-action="show-whole-chapter" data-pane-index="' + paneIndex + '">' + icon("maximize-2") + "Show whole chapter</button>";
+  const contextControl = pane.scope === "verse"
+    ? '<div class="passage-choice chapter-return"><button class="show-chapter" data-action="show-whole-chapter" data-pane-index="' + paneIndex + '">' + icon("maximize-2") + "Show whole chapter</button></div>"
+    : "";
   return '<article class="' + classes + '" data-activate-pane="' + paneIndex + '">' + renderCanvasTabs(paneIndex) +
     '<div class="pane-header"><div class="pane-topline"><select class="version-select" data-pane-version="' + paneIndex + '" aria-label="Bible version">' + versionOptions + '</select><select class="reader-view-select" data-pane-view="' + paneIndex + '" aria-label="Reading layout"><option value="paragraph"' + (pane.view === "paragraph" ? " selected" : "") + '>Paragraph</option><option value="lines"' + (pane.view === "lines" ? " selected" : "") + '>One verse per line</option><option value="interlinear"' + (pane.view === "interlinear" ? " selected" : "") + '>Interlinear</option><option value="compare"' + (pane.view === "compare" ? " selected" : "") + (pane.scope !== "verse" ? " disabled" : "") + '>Compare versions</option></select>' + offlineStatus + '</div>' +
       '<div class="chapter-nav"><button class="chapter-arrow" data-chapter-nav="' + paneIndex + '|-1" title="Previous chapter">' + icon("chevron-left") + '</button><div>' +
       '<h1 class="chapter-title">' + escapeHtml(pane.reference.book) + " " + pane.reference.chapter + '</h1><p class="pane-meta">' + escapeHtml(displayTranslation.name) + " · " + escapeHtml(displayTranslation.language) + "</p></div>" +
       '<button class="chapter-arrow" data-chapter-nav="' + paneIndex + '|1" title="Next chapter">' + icon("chevron-right") + "</button></div></div>" +
-    '<div class="passage-choice"><span>' + escapeHtml(passageTitle) + "</span>" + contextControl + "</div>" +
-    (pane.scope === "pericope" && pericope ? '<div class="pericope-heading">' + escapeHtml(pericope.title) + "</div>" : "") + versesHtml +
+    contextControl + versesHtml +
     '<div class="source-status ' + (result?.error ? "warning" : "") + '">' + icon(result?.error ? "circle-alert" : "cloud-check") +
       "<span>" + escapeHtml(pane.loading ? "Loading " + translation.label + " while keeping the current text visible..." : result?.message || "Loading chapter...") + "</span></div>" +
   "</article>";
@@ -451,8 +449,7 @@ function renderPopover() {
       '<button class="format-button popover-icon-action" data-action="copy-verse" title="Copy reference" aria-label="Copy reference">' + icon("copy") + "</button>" +
       '<button class="format-button popover-icon-action" data-action="open-note" title="Open note" aria-label="Open note">' + icon("notebook-pen") + "</button>" +
       '<button class="format-button popover-icon-action" data-action="clear-highlight" title="Clear highlight" aria-label="Clear highlight">' + icon("eraser") + "</button></div>" +
-    '<div class="focus-actions"><button class="format-button popover-icon-action primary" data-action="focus-pericope" title="Focus this pericope" aria-label="Focus this pericope">' + icon("columns-2") + "</button>" +
-      '<button class="format-button popover-icon-action" data-action="focus-verse" title="Show this verse only" aria-label="Show this verse only">' + icon("rows-3") + "</button></div></div>";
+    '<div class="focus-actions"><button class="format-button popover-icon-action" data-action="focus-verse" title="Show this verse only" aria-label="Show this verse only">' + icon("rows-3") + "</button></div></div>";
 }
 
 function render() {
@@ -668,23 +665,19 @@ function navigateChapter(paneIndex, direction) {
   changePaneReference(paneIndex, next);
 }
 
-function activateSplitFocus(scope) {
+function activateVerseFocus() {
   const sourceIndex = state.activePane;
   const targetIndex = sourceIndex === 0 ? 1 : 0;
   const sourcePane = paneAt(sourceIndex);
   const reference = parseReference(popoverVerse);
   if (!reference) return;
-  if (scope === "pericope" && !findPericope(reference)) {
-    showToast("This pericope has not been indexed yet.");
-    return;
-  }
 
   const focusedPane = paneAt(targetIndex);
   focusedPane.reference = reference;
   focusedPane.translation = sourcePane.translation;
   focusedPane.label = displayReference(reference);
-  focusedPane.scope = scope;
-  focusedPane.view = scope === "verse" ? "compare" : (sourcePane.view === "compare" ? "paragraph" : sourcePane.view);
+  focusedPane.scope = "verse";
+  focusedPane.view = "compare";
   focusedPane.fallback = null;
   state.split = true;
   state.activePane = targetIndex;
@@ -855,8 +848,6 @@ app.addEventListener("click", async (event) => {
     }
     return;
   }
-  const scope = event.target.closest("[data-scope]");
-  if (scope) { activePane().scope = scope.dataset.scope; persist(); render(); return; }
   const study = event.target.closest("[data-study-tab], [data-study-open]");
   if (study) { state.studyTab = study.dataset.studyTab || study.dataset.studyOpen; persist(); render(); return; }
   const highlighter = event.target.closest("[data-highlight]");
@@ -916,8 +907,7 @@ app.addEventListener("click", async (event) => {
     highlightedVerseReferences().forEach((reference) => delete state.highlights[reference]);
     persist(); popoverVerse = null; state.selectedVerse = null; multiVerseSelection = []; render(); return;
   }
-  if (action === "focus-pericope") return activateSplitFocus("pericope");
-  if (action === "focus-verse") return activateSplitFocus("verse");
+  if (action === "focus-verse") return activateVerseFocus();
   if (action === "show-whole-chapter") {
     const paneIndex = Number(actionTarget.dataset.paneIndex);
     const pane = paneAt(paneIndex);
