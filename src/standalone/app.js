@@ -1,6 +1,6 @@
 import { BOOKS, chapterCount, displayReference, findPericope, isOldTestament, moveChapter, parseReference } from "../core/references.js";
 import { TRANSLATIONS, getChapter } from "../core/bible-sources.js";
-import { downloadFile, loadState, saveState } from "../core/storage.js";
+import { downloadFile, loadCachedChapter, loadState, saveCachedChapter, saveState } from "../core/storage.js?v=2";
 
 const app = document.querySelector("#app");
 const defaultState = {
@@ -24,7 +24,7 @@ const defaultState = {
   notes: {},
   studyTab: "notes",
   noteMode: "rich",
-  selectedVerse: "John 1:1"
+  selectedVerse: null
 };
 
 let state = loadState(defaultState);
@@ -41,10 +41,19 @@ if (state.canvasVersion !== 3) {
   state.navigatorOpen = false;
   state.browseStage = "books";
 }
+function createRecordId(prefix) {
+  return prefix + "-" + (crypto.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2));
+}
+
+state.selectedVerse = null;
+state.bookmarks = (state.bookmarks || []).map((bookmark, index) => ({
+  ...bookmark,
+  id: bookmark.id || "bookmark-legacy-" + index + "-" + Date.now()
+}));
 let chapterData = {};
 let popoverVerse = null;
 let toastTimer = null;
-let scrollToSelectedVerse = false;
+let pendingArrival = null;
 
 function icon(name) {
   return '<i data-lucide="' + name + '"></i>';
@@ -90,7 +99,32 @@ function updateOfflineVersion(pane) {
 }
 
 function persist() {
-  saveState(state);
+  saveState({ ...state, selectedVerse: null });
+}
+
+function clearVerseSelection() {
+  const changed = Boolean(state.selectedVerse || popoverVerse);
+  state.selectedVerse = null;
+  popoverVerse = null;
+  return changed;
+}
+
+function queueArrival(paneIndex, reference) {
+  pendingArrival = { paneIndex, reference: displayReference(reference) };
+}
+
+function revealArrivalIfReady(pane, key) {
+  const paneIndex = state.canvases.findIndex((canvas) => canvas.tabs.some((tab) => tab.id === pane.id));
+  if (!pendingArrival || pendingArrival.paneIndex !== paneIndex || key !== referenceKey(pane)) return;
+  const arrival = pendingArrival;
+  pendingArrival = null;
+  requestAnimationFrame(() => {
+    const verse = document.querySelector('[data-activate-pane="' + arrival.paneIndex + '"] [data-verse="' + arrival.reference + '"]');
+    if (!verse) return;
+    verse.scrollIntoView({ block: "start", behavior: "smooth" });
+    verse.classList.add("arrival-flash");
+    setTimeout(() => verse.classList.remove("arrival-flash"), 2400);
+  });
 }
 
 function setRootTheme() {
@@ -208,34 +242,38 @@ function emptyReader(translation, result) {
 
 function renderPane(pane, paneIndex) {
   const translation = TRANSLATIONS[pane.translation];
-  const result = chapterData[referenceKey(pane)];
+  const loadedResult = chapterData[referenceKey(pane)];
+  const showingFallback = !loadedResult && pane.fallback?.result;
+  const result = loadedResult || pane.fallback?.result;
+  const displayTranslation = showingFallback ? TRANSLATIONS[pane.fallback.translation] : translation;
   const pericope = findPericope(pane.reference);
   let verses = result?.verses || [];
   if (pane.scope === "verse") verses = verses.filter((verse) => verse.number === Number(pane.reference.verse));
   if (pane.scope === "pericope" && pericope.to) verses = verses.filter((verse) => verse.number >= pericope.from && verse.number <= pericope.to);
   const currentRef = displayReference(pane.reference);
-  const classes = "reader-pane paper-" + state.paper + (translation.script ? " lang-" + translation.script : "") + (paneIndex === state.activePane ? " active-pane" : "");
+  const classes = "reader-pane paper-" + state.paper + (displayTranslation.script ? " lang-" + displayTranslation.script : "") + (paneIndex === state.activePane ? " active-pane" : "");
   const versionOptions = Object.entries(TRANSLATIONS).map(([id, item]) =>
     '<option value="' + id + '"' + (id === pane.translation ? " selected" : "") + (!isTranslationApplicable(id, pane.reference) ? " disabled" : "") + ">" + item.label + "</option>"
   ).join("");
-  const offlineStatus = !navigator.onLine ? '<span class="offline-status">' + icon("wifi-off") + "Offline · " + translation.label + "</span>" : "";
+  const offlineStatus = pane.loading ? '<span class="offline-status loading-status">' + icon("loader-circle") + "Loading " + translation.label + "</span>" : !navigator.onLine ? '<span class="offline-status">' + icon("wifi-off") + "Offline · " + translation.label + "</span>" : "";
   const versesHtml = verses.length ? '<div class="verse-list">' + verses.map((verse) => {
     const verseRef = pane.reference.book + " " + pane.reference.chapter + ":" + verse.number;
     const highlight = state.highlights[verseRef] ? " highlight-" + state.highlights[verseRef] : "";
     const selected = state.selectedVerse === verseRef ? " selected" : "";
     return '<span class="verse' + highlight + selected + '" data-verse="' + escapeHtml(verseRef) + '" data-pane="' + paneIndex + '" dir="' + translation.direction + '">' +
       '<sup class="verse-number">' + verse.number + "</sup>" + escapeHtml(verse.text) + '</span><span class="verse-spacer"> </span>';
-  }).join("") + "</div>" : emptyReader(translation, result);
+  }).join("") + "</div>" : emptyReader(displayTranslation, result);
+  const contextControl = pane.scope === "chapter"
+    ? '<span class="chapter-context">Whole chapter</span>'
+    : '<button class="show-chapter" data-action="show-whole-chapter" data-pane-index="' + paneIndex + '">' + icon("maximize-2") + "Show whole chapter</button>";
   return '<article class="' + classes + '" data-activate-pane="' + paneIndex + '">' + renderCanvasTabs(paneIndex) +
     '<div class="pane-header"><div class="pane-topline"><select class="version-select" data-pane-version="' + paneIndex + '" aria-label="Bible version">' + versionOptions + "</select>" + offlineStatus + '</div>' +
       '<div class="chapter-nav"><button class="chapter-arrow" data-chapter-nav="' + paneIndex + '|-1" title="Previous chapter">' + icon("chevron-left") + '</button><div>' +
-      '<h1 class="chapter-title">' + escapeHtml(pane.reference.book) + " " + pane.reference.chapter + '</h1><p class="pane-meta">' + escapeHtml(translation.name) + " · " + escapeHtml(translation.language) + "</p></div>" +
+      '<h1 class="chapter-title">' + escapeHtml(pane.reference.book) + " " + pane.reference.chapter + '</h1><p class="pane-meta">' + escapeHtml(displayTranslation.name) + " · " + escapeHtml(displayTranslation.language) + "</p></div>" +
       '<button class="chapter-arrow" data-chapter-nav="' + paneIndex + '|1" title="Next chapter">' + icon("chevron-right") + "</button></div></div>" +
-    '<div class="passage-choice"><span>' + escapeHtml(pericope.title) + '</span><span class="chapter-context">' +
-      (pane.scope === "pericope" ? "Focused pericope" : pane.scope === "verse" ? "Selected verse" : "Whole chapter") +
-    "</span></div>" + versesHtml +
+    '<div class="passage-choice"><span>' + escapeHtml(pericope.title) + "</span>" + contextControl + "</div>" + versesHtml +
     '<div class="source-status ' + (result?.error ? "warning" : "") + '">' + icon(result?.error ? "circle-alert" : "cloud-check") +
-      "<span>" + escapeHtml(result?.message || "Loading chapter...") + "</span></div>" +
+      "<span>" + escapeHtml(pane.loading ? "Loading " + translation.label + " while keeping the current text visible..." : result?.message || "Loading chapter...") + "</span></div>" +
   "</article>";
 }
 
@@ -301,7 +339,7 @@ function noteMarkup() {
 function bookmarksMarkup() {
   const cards = state.bookmarks.length ? state.bookmarks.slice().reverse().map((bookmark) =>
     '<div class="bookmark-card" data-go-bookmark="' + escapeHtml(bookmark.reference) + '"><div><strong>' + escapeHtml(bookmark.reference) + "</strong>" +
-      '<span>' + escapeHtml(bookmark.label || "Saved passage") + '</span></div><button class="bookmark-remove" data-delete-bookmark="' + escapeHtml(bookmark.reference) + '" title="Remove bookmark" aria-label="Remove ' + escapeHtml(bookmark.reference) + ' bookmark">' + icon("trash-2") + "</button></div>"
+      '<span>' + escapeHtml(bookmark.label || "Saved passage") + '</span></div><button class="bookmark-remove" data-delete-bookmark="' + escapeHtml(bookmark.id) + '" title="Remove bookmark" aria-label="Remove ' + escapeHtml(bookmark.reference) + ' bookmark">' + icon("trash-2") + "</button></div>"
   ).join("") : '<div class="empty-state">Your saved passages will appear here.</div>';
   return '<div class="bookmark-panel"><div class="note-reference"><span>Saved passages</span><span>' + state.bookmarks.length + "</span></div>" + cards + "</div>";
 }
@@ -350,19 +388,31 @@ function render() {
       paneIndexes.map((paneIndex) => renderPane(paneAt(paneIndex), paneIndex)).join("") +
     "</div></section>" + (state.studyOpen ? renderStudyPanel() : "") + "</div></main>" + renderSettings() + renderPopover();
   if (window.lucide) window.lucide.createIcons();
-  if (scrollToSelectedVerse) {
-    scrollToSelectedVerse = false;
-    requestAnimationFrame(() => document.querySelector('[data-verse="' + state.selectedVerse + '"]')?.scrollIntoView({ block: "center", behavior: "smooth" }));
-  }
 }
 
 async function loadPane(pane) {
   updateOfflineVersion(pane);
   const key = referenceKey(pane);
-  chapterData[key] = { verses: [], message: "Loading chapter..." };
+  if (chapterData[key]?.verses?.length) {
+    pane.loading = false;
+    pane.fallback = null;
+    render();
+    revealArrivalIfReady(pane, key);
+    return;
+  }
+  pane.loading = true;
   render();
-  chapterData[key] = await getChapter(pane.reference, pane.translation);
+  const cached = await loadCachedChapter(key);
+  if (cached?.verses?.length) chapterData[key] = cached;
+  else {
+    chapterData[key] = await getChapter(pane.reference, pane.translation);
+    if (chapterData[key].verses?.length && pane.translation !== "NET") saveCachedChapter(key, chapterData[key]);
+  }
+  if (referenceKey(pane) !== key) return;
+  pane.loading = false;
+  pane.fallback = null;
   render();
+  revealArrivalIfReady(pane, key);
 }
 
 function loadVisiblePanes() {
@@ -371,18 +421,24 @@ function loadVisiblePanes() {
 }
 
 function closeOverlays() {
-  popoverVerse = null;
+  clearVerseSelection();
   state.navigatorOpen = false;
   const settings = document.querySelector("#settings-menu");
   if (settings) settings.classList.remove("visible");
 }
 
 function openVersePopover(reference, target) {
+  if (state.selectedVerse === reference && popoverVerse === reference) {
+    clearVerseSelection();
+    persist();
+    render();
+    return;
+  }
+  const rect = target.getBoundingClientRect();
   state.selectedVerse = reference;
   popoverVerse = reference;
   render();
   const popover = document.querySelector("#verse-popover");
-  const rect = target.getBoundingClientRect();
   popover.style.left = Math.min(window.innerWidth - 268, Math.max(12, rect.left)) + "px";
   popover.style.top = Math.min(window.innerHeight - 145, rect.bottom + 8) + "px";
   persist();
@@ -419,9 +475,9 @@ function changePaneReference(paneIndex, next) {
   pane.scope = "chapter";
   updateOfflineVersion(pane);
   state.activePane = paneIndex;
-  state.selectedVerse = displayReference(next);
+  state.selectedVerse = null;
   state.navigatorOpen = false;
-  scrollToSelectedVerse = true;
+  queueArrival(paneIndex, next);
   persist();
   render();
   loadVisiblePanes();
@@ -444,21 +500,17 @@ function activateSplitFocus(scope) {
   const reference = parseReference(popoverVerse);
   if (!reference) return;
 
-  const targetCanvas = canvasAt(targetIndex);
-  const id = "canvas-" + targetIndex + "-tab-" + Date.now();
-  const focusedPane = {
-    ...JSON.parse(JSON.stringify(sourcePane)),
-    id,
-    label: displayReference(reference),
-    reference,
-    scope
-  };
-  targetCanvas.tabs.push(focusedPane);
-  targetCanvas.activeTab = id;
+  const focusedPane = paneAt(targetIndex);
+  focusedPane.reference = reference;
+  focusedPane.translation = sourcePane.translation;
+  focusedPane.label = displayReference(reference);
+  focusedPane.scope = scope;
+  focusedPane.fallback = null;
   state.split = true;
   state.activePane = targetIndex;
-  state.selectedVerse = displayReference(reference);
+  state.selectedVerse = null;
   popoverVerse = null;
+  queueArrival(targetIndex, reference);
   persist();
   render();
   loadVisiblePanes();
@@ -520,6 +572,12 @@ async function saveToObsidian() {
 }
 
 app.addEventListener("click", async (event) => {
+  const insidePicker = event.target.closest(".reference-browser");
+  const pickerTrigger = event.target.closest('[data-action="toggle-browser"]');
+  const insideVersePopover = event.target.closest("#verse-popover");
+  const clickedVerse = event.target.closest("[data-verse]");
+  if (state.navigatorOpen && !insidePicker && !pickerTrigger) state.navigatorOpen = false;
+  if (!clickedVerse && !insideVersePopover) clearVerseSelection();
   const close = event.target.closest("[data-close-canvas-tab]");
   if (close) {
     event.stopPropagation();
@@ -597,7 +655,7 @@ app.addEventListener("click", async (event) => {
   if (highlighter) { state.highlights[popoverVerse] = highlighter.dataset.highlight; persist(); render(); return; }
   const deleteBookmark = event.target.closest("[data-delete-bookmark]");
   if (deleteBookmark) {
-    state.bookmarks = state.bookmarks.filter((item) => item.reference !== deleteBookmark.dataset.deleteBookmark);
+    state.bookmarks = state.bookmarks.filter((item) => item.id !== deleteBookmark.dataset.deleteBookmark);
     persist(); render(); showToast("Bookmark removed."); return;
   }
   const bookmark = event.target.closest("[data-go-bookmark]");
@@ -606,7 +664,9 @@ app.addEventListener("click", async (event) => {
   if (paper) { state.paper = paper.dataset.paper; persist(); render(); openSettings(event.target); return; }
   const actionTarget = event.target.closest("[data-action]");
   if (!actionTarget) {
+    if (event.target.closest("select, input, textarea")) { persist(); return; }
     if (!event.target.closest("#verse-popover") && !event.target.closest("#settings-menu")) closeOverlays();
+    persist(); render();
     return;
   }
   const action = actionTarget.dataset.action;
@@ -624,7 +684,7 @@ app.addEventListener("click", async (event) => {
   if (action === "settings") return openSettings(actionTarget);
   if (action === "dark-mode") { state.dark = !state.dark; persist(); render(); return; }
   if (action === "bookmark") {
-    if (!state.bookmarks.some((item) => item.reference === popoverVerse)) state.bookmarks.push({ reference: popoverVerse, label: "Saved passage" });
+    if (!state.bookmarks.some((item) => item.reference === popoverVerse)) state.bookmarks.push({ id: createRecordId("bookmark"), reference: popoverVerse, label: "Saved passage" });
     state.studyTab = "bookmarks"; state.studyOpen = true; persist(); popoverVerse = null; render(); showToast("Passage saved."); return;
   }
   if (action === "copy-verse") { await navigator.clipboard?.writeText(popoverVerse); showToast("Reference copied."); return; }
@@ -632,6 +692,14 @@ app.addEventListener("click", async (event) => {
   if (action === "clear-highlight") { delete state.highlights[popoverVerse]; persist(); popoverVerse = null; render(); return; }
   if (action === "focus-pericope") return activateSplitFocus("pericope");
   if (action === "focus-verse") return activateSplitFocus("verse");
+  if (action === "show-whole-chapter") {
+    const paneIndex = Number(actionTarget.dataset.paneIndex);
+    const pane = paneAt(paneIndex);
+    pane.scope = "chapter";
+    state.activePane = paneIndex;
+    state.selectedVerse = null;
+    persist(); render(); return;
+  }
   if (action === "note-mode") {
     syncNote(); state.noteMode = state.noteMode === "rich" ? "markdown" : "rich"; persist(); render(); return;
   }
@@ -645,6 +713,8 @@ app.addEventListener("change", (event) => {
   const paneVersion = event.target.dataset.paneVersion;
   if (paneVersion !== undefined) {
     const pane = paneAt(Number(paneVersion));
+    const currentResult = chapterData[referenceKey(pane)];
+    if (currentResult?.verses?.length) pane.fallback = { result: currentResult, translation: pane.translation };
     pane.translation = event.target.value;
     updateOfflineVersion(pane);
     state.activePane = Number(paneVersion);
