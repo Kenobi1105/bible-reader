@@ -24,7 +24,7 @@ const defaultState = {
   browseChapter: 1,
   paper: "white",
   dark: false,
-  fontSize: 19,
+  fontSize: 18,
   highlights: {},
   bookmarks: [],
   notes: {},
@@ -60,6 +60,8 @@ state.canvases.forEach((canvas) => { canvas.mode ||= "reader"; canvas.lastUsed |
 state.layout = Math.min(3, Math.max(1, Number(state.layout) || 1));
 state.singlePanelWidth = Math.min(1300, Math.max(460, Number(state.singlePanelWidth) || 900));
 state.twoPanelRatio = Math.min(.72, Math.max(.28, Number(state.twoPanelRatio) || .5));
+const FONT_SIZES = [12, 14, 16, 18, 20, 22, 24];
+state.fontSize = FONT_SIZES.includes(Number(state.fontSize)) ? Number(state.fontSize) : 18;
 
 state.selectedVerse = null;
 state.paneSync = Boolean(state.paneSync);
@@ -237,7 +239,7 @@ function revealArrivalIfReady(pane, key) {
 
 function setRootTheme() {
   document.body.classList.toggle("dark", state.dark);
-  document.documentElement.style.setProperty("--font-size", state.fontSize + "px");
+  document.documentElement.style.setProperty("--font-size", state.fontSize + "pt");
 }
 
 function showToast(message) {
@@ -579,9 +581,12 @@ function renderStudyPanel(drawer = false) {
 
 function renderSettings() {
   const paper = state.paper;
+  const fontPips = FONT_SIZES.map((size) =>
+    '<button class="font-size-pip' + (state.fontSize === size ? " active" : "") + '" data-font-size="' + size + '" aria-label="Set text size to ' + size + ' pt" aria-pressed="' + (state.fontSize === size) + '" title="' + size + ' pt"><span></span></button>'
+  ).join("");
   return '<div class="settings-menu" id="settings-menu">' +
-    '<div class="setting-row"><label><span>Text size</span><span>' + state.fontSize + " px</span></label>" +
-      '<input type="range" min="15" max="28" value="' + state.fontSize + '" data-setting="font-size"></div>' +
+    '<div class="setting-row"><label><span>Text size</span><span>' + state.fontSize + " pt</span></label>" +
+      '<div class="font-size-pips" role="group" aria-label="Text size">' + fontPips + "</div></div>" +
     '<div class="setting-row"><label><span>Reader canvas</span></label><div class="theme-options">' +
       '<button class="theme-option ' + (paper === "white" ? "active" : "") + '" data-paper="white">White</button>' +
       '<button class="theme-option parchment ' + (paper === "parchment" ? "active" : "") + '" data-paper="parchment">Parchment</button>' +
@@ -719,6 +724,27 @@ function closeOverlays() {
   if (settings) settings.classList.remove("visible");
 }
 
+function dismissFloatingMenus(event) {
+  const settingsTrigger = event.target.closest('[data-action="settings"]');
+  const canvasTab = event.target.closest("[data-canvas-tab]");
+  const insideSettings = event.target.closest("#settings-menu");
+  const insidePaneSettings = event.target.closest(".pane-settings-popover");
+  let changed = false;
+  if (!insideSettings && !settingsTrigger) {
+    const settingsMenu = document.querySelector("#settings-menu");
+    if (settingsMenu?.classList.contains("visible")) {
+      settingsMenu.classList.remove("visible");
+      changed = true;
+    }
+  }
+  if (!insidePaneSettings && !canvasTab && state.panelSettings !== null) {
+    state.panelSettings = null;
+    document.querySelector(".pane-settings-popover")?.remove();
+    changed = true;
+  }
+  if (changed) persist();
+}
+
 function placeVersePopover(rect) {
   const popover = document.querySelector("#verse-popover");
   if (!popover) return;
@@ -765,6 +791,12 @@ function toggleMultiVerse(reference, target) {
 function openSettings(target) {
   const menu = document.querySelector("#settings-menu");
   const rect = target.getBoundingClientRect();
+  if (menu.classList.contains("visible")) {
+    menu.classList.remove("visible");
+    return;
+  }
+  state.panelSettings = null;
+  document.querySelector(".pane-settings-popover")?.remove();
   menu.classList.add("visible");
   menu.style.right = Math.max(12, window.innerWidth - rect.right) + "px";
   menu.style.top = rect.bottom + 8 + "px";
@@ -1003,6 +1035,7 @@ async function saveToObsidian() {
 }
 
 app.addEventListener("click", async (event) => {
+  dismissFloatingMenus(event);
   const insidePicker = event.target.closest(".reference-browser");
   const pickerTrigger = event.target.closest('[data-action="toggle-browser"]');
   const insideVersePopover = event.target.closest("#verse-popover");
@@ -1152,6 +1185,12 @@ app.addEventListener("click", async (event) => {
   if (bookmark) { const parsed = parseReference(bookmark.dataset.goBookmark); if (parsed) { changeReference(parsed); state.studyTab = "bookmarks"; } return; }
   const paper = event.target.closest("[data-paper]");
   if (paper) { state.paper = paper.dataset.paper; persist(); render(); openSettings(event.target); return; }
+  const fontSizePip = event.target.closest("[data-font-size]");
+  if (fontSizePip) {
+    state.fontSize = Number(fontSizePip.dataset.fontSize);
+    persist(); render(); openSettings(document.querySelector('[data-action="settings"]'));
+    return;
+  }
   const actionTarget = event.target.closest("[data-action]");
   if (!actionTarget) {
     if (event.target.closest("select, input, textarea, [contenteditable=true]")) { persist(); return; }
