@@ -14,6 +14,8 @@ const defaultState = {
   activePane: 0,
   mobilePane: 0,
   layout: 1,
+  singlePanelWidth: 900,
+  twoPanelRatio: 0.5,
   paneSync: false,
   studyOpen: false,
   navigatorOpen: false,
@@ -56,6 +58,8 @@ while (state.canvases.length < 3) state.canvases.push(createReaderCanvas(state.c
 state.canvases = state.canvases.slice(0, 3);
 state.canvases.forEach((canvas) => { canvas.mode ||= "reader"; canvas.lastUsed ||= 0; });
 state.layout = Math.min(3, Math.max(1, Number(state.layout) || 1));
+state.singlePanelWidth = Math.min(1300, Math.max(460, Number(state.singlePanelWidth) || 900));
+state.twoPanelRatio = Math.min(.72, Math.max(.28, Number(state.twoPanelRatio) || .5));
 
 state.selectedVerse = null;
 state.paneSync = Boolean(state.paneSync);
@@ -82,6 +86,7 @@ let browseVerseMessage = "Loading verses...";
 let multiVerseSelection = [];
 let syncScrollLocked = false;
 let lastSyncedScrollReference = "";
+let resizeSession = null;
 
 function icon(name) {
   return '<i data-lucide="' + name + '"></i>';
@@ -124,6 +129,44 @@ function activePane() {
 function markPaneUsed(index) {
   const canvas = canvasAt(index);
   if (canvas?.mode === "reader") canvas.lastUsed = Date.now();
+}
+
+function remapPaneIndex(index, left, right) {
+  if (index === left) return right;
+  if (index === right) return left;
+  return index;
+}
+
+function swapCanvasPositions(left, right) {
+  if (left === right) return;
+  [state.canvases[left], state.canvases[right]] = [state.canvases[right], state.canvases[left]];
+  state.activePane = remapPaneIndex(state.activePane, left, right);
+  state.mobilePane = remapPaneIndex(state.mobilePane, left, right);
+  if (state.panelSettings !== null) state.panelSettings = remapPaneIndex(state.panelSettings, left, right);
+  const leftArrival = pendingArrivals.get(left);
+  const rightArrival = pendingArrivals.get(right);
+  if (leftArrival === undefined) pendingArrivals.delete(right); else pendingArrivals.set(right, leftArrival);
+  if (rightArrival === undefined) pendingArrivals.delete(left); else pendingArrivals.set(left, rightArrival);
+}
+
+function visibleParseIndex() {
+  return visiblePaneIndexes().find((index) => canvasAt(index).mode === "parse");
+}
+
+function moveParseToRightmost() {
+  const parseIndex = visibleParseIndex();
+  if (parseIndex === undefined) return;
+  const rightmost = state.layout - 1;
+  if (parseIndex !== rightmost) swapCanvasPositions(parseIndex, rightmost);
+}
+
+function duplicateReaderCanvas(sourceIndex, targetIndex) {
+  const pane = JSON.parse(JSON.stringify(paneAt(sourceIndex)));
+  const id = "canvas-" + targetIndex + "-tab-" + Date.now();
+  pane.id = id;
+  pane.label = displayReference(pane.reference);
+  pane.scope = "chapter";
+  return { mode: "reader", lastUsed: 0, activeTab: id, tabs: [pane] };
 }
 
 function referenceKey(pane) {
@@ -572,9 +615,17 @@ function render() {
   const paneIndexes = visiblePaneIndexes();
   const paneGrid = state.layout === 1 ? "single" : state.layout === 2 ? "split" : "triple";
   const studyDrawer = state.studyOpen && state.layout === 3;
+  const renderPanel = (paneIndex) => isReaderCanvas(paneIndex) ? renderPane(paneAt(paneIndex), paneIndex) : renderParsePane(canvasAt(paneIndex), paneIndex);
+  const resizer = (kind) => '<div class="pane-resizer ' + kind + '" data-pane-resizer="' + kind + '" title="Drag to resize reader panels"></div>';
+  const gridContents = state.layout === 1
+    ? renderPanel(0) + resizer("single")
+    : state.layout === 2
+      ? renderPanel(0) + resizer("split") + renderPanel(1)
+      : paneIndexes.map(renderPanel).join("");
+  const gridStyle = '--single-panel-width:' + state.singlePanelWidth + 'px;--left-panel-width:' + Math.round(state.twoPanelRatio * 1000) / 10 + '%;';
   app.innerHTML = '<main class="reader-shell">' + renderWorkspaceHeader() + renderReferenceBrowser() +
-    '<div class="desk ' + (state.studyOpen && !studyDrawer ? "study-open" : "") + (studyDrawer ? " study-drawer-open" : "") + '"><section class="reading-area"><div class="pane-grid ' + paneGrid + '">' +
-      paneIndexes.map((paneIndex) => isReaderCanvas(paneIndex) ? renderPane(paneAt(paneIndex), paneIndex) : renderParsePane(canvasAt(paneIndex), paneIndex)).join("") +
+    '<div class="desk ' + (state.studyOpen && !studyDrawer ? "study-open" : "") + (studyDrawer ? " study-drawer-open" : "") + '"><section class="reading-area"><div class="pane-grid ' + paneGrid + (visibleParseIndex() !== undefined ? " has-parse" : "") + '" style="' + gridStyle + '">' +
+      gridContents +
     "</div></section>" + (state.studyOpen ? renderStudyPanel(studyDrawer) : "") + "</div></main>" + renderSettings() + renderPopover();
   if (window.lucide) window.lucide.createIcons();
   document.querySelectorAll(".reader-pane[data-activate-pane] .verse-list").forEach((list) => {
@@ -739,7 +790,16 @@ function newCanvasTab(paneIndex = state.activePane) {
 }
 
 function setLayout(layout) {
-  state.layout = Math.min(3, Math.max(1, layout));
+  const nextLayout = Math.min(3, Math.max(1, layout));
+  if (state.layout === 2 && nextLayout === 3 && canvasAt(1).mode === "parse") {
+    const parser = canvasAt(1);
+    state.canvases[1] = duplicateReaderCanvas(activeReaderIndex(), 1);
+    state.canvases[2] = parser;
+    if (state.mobilePane === 1) state.mobilePane = 2;
+    if (state.panelSettings === 1) state.panelSettings = null;
+  }
+  state.layout = nextLayout;
+  moveParseToRightmost();
   if (!readerPaneIndexes().includes(state.activePane)) state.activePane = readerPaneIndexes()[0] ?? 0;
   if (!visiblePaneIndexes().includes(state.mobilePane)) state.mobilePane = state.activePane;
   state.panelSettings = null;
@@ -822,6 +882,25 @@ function activateVerseFocus() {
   loadVisiblePanes();
 }
 
+function loadVerseInAdjacentCompare(sourceIndex, reference) {
+  const targetIndex = sourceIndex + 1;
+  if (targetIndex >= state.layout || !isReaderCanvas(targetIndex)) return false;
+  const targetPane = paneAt(targetIndex);
+  if (targetPane.view !== "compare") return false;
+  const parsed = parseReference(reference);
+  if (!parsed) return false;
+  targetPane.reference = parsed;
+  targetPane.label = displayReference(parsed);
+  targetPane.scope = "verse";
+  targetPane.fallback = null;
+  updateOfflineVersion(targetPane);
+  queueArrival(targetIndex, parsed);
+  persist();
+  render();
+  loadVisiblePanes();
+  return true;
+}
+
 function openParsingPanel(target) {
   const translation = target.dataset.morphTranslation;
   const book = target.dataset.morphBook;
@@ -833,9 +912,11 @@ function openParsingPanel(target) {
   if (!parsed || !word) return;
   let parseIndex = visiblePaneIndexes().find((paneIndex) => canvasAt(paneIndex).mode === "parse");
   if (parseIndex === undefined) {
-    if (state.layout < 3) {
-      parseIndex = state.layout;
-      state.layout += 1;
+    if (state.layout === 1) {
+      parseIndex = 1;
+      state.layout = 2;
+    } else if (state.layout === 2) {
+      parseIndex = 1;
     } else {
       const candidates = readerPaneIndexes().filter((paneIndex) => paneIndex !== state.activePane);
       parseIndex = candidates.sort((left, right) => (canvasAt(left).lastUsed || 0) - (canvasAt(right).lastUsed || 0))[0] ?? state.activePane;
@@ -844,13 +925,17 @@ function openParsingPanel(target) {
   const canvas = canvasAt(parseIndex);
   canvas.mode = "parse";
   canvas.parseData = { translation, book, reference, word };
+  if (state.layout === 2) state.twoPanelRatio = .66;
+  moveParseToRightmost();
   state.panelSettings = null;
-  state.mobilePane = parseIndex;
+  state.mobilePane = state.layout - 1;
   persist();
   render();
 }
 
 function closeParsingPanel(paneIndex) {
+  moveParseToRightmost();
+  paneIndex = state.layout - 1;
   const canvas = canvasAt(paneIndex);
   canvas.mode = "reader";
   delete canvas.parseData;
@@ -1203,7 +1288,9 @@ app.addEventListener("dblclick", (event) => {
   const paneIndex = Number(verse.dataset.pane);
   if (paneAt(paneIndex).view === "compare") return;
   state.activePane = paneIndex;
+  state.mobilePane = paneIndex;
   if (event.ctrlKey) return toggleMultiVerse(verse.dataset.verse, verse);
+  if (loadVerseInAdjacentCompare(paneIndex, verse.dataset.verse)) return;
   multiVerseSelection = [];
   openVersePopover(verse.dataset.verse, verse);
 });
@@ -1230,6 +1317,43 @@ app.addEventListener("mouseup", (event) => {
   wordRange.setEnd(node, end);
   selection.removeAllRanges();
   selection.addRange(wordRange);
+});
+
+app.addEventListener("pointerdown", (event) => {
+  const handle = event.target.closest("[data-pane-resizer]");
+  if (!handle || window.innerWidth <= 760) return;
+  const grid = handle.closest(".pane-grid");
+  if (!grid) return;
+  event.preventDefault();
+  resizeSession = { kind: handle.dataset.paneResizer, grid, startX: event.clientX, startWidth: state.singlePanelWidth, startRatio: state.twoPanelRatio };
+  handle.setPointerCapture?.(event.pointerId);
+  document.body.classList.add("resizing-panels");
+});
+
+window.addEventListener("pointermove", (event) => {
+  if (!resizeSession) return;
+  const readingArea = resizeSession.grid.closest(".reading-area");
+  if (resizeSession.kind === "single") {
+    const maximum = Math.min(1300, (readingArea?.getBoundingClientRect().width || window.innerWidth) - 34);
+    state.singlePanelWidth = Math.round(Math.min(maximum, Math.max(460, resizeSession.startWidth + event.clientX - resizeSession.startX)));
+    resizeSession.grid.style.setProperty("--single-panel-width", state.singlePanelWidth + "px");
+    return;
+  }
+  const rect = resizeSession.grid.getBoundingClientRect();
+  const available = Math.max(1, rect.width - 12);
+  const leftMinimum = 360;
+  const rightMinimum = canvasAt(1).mode === "parse" ? 310 : 360;
+  const leftWidth = Math.min(available - rightMinimum, Math.max(leftMinimum, event.clientX - rect.left));
+  state.twoPanelRatio = Math.min(.72, Math.max(.28, leftWidth / available));
+  resizeSession.grid.style.setProperty("--left-panel-width", Math.round(state.twoPanelRatio * 1000) / 10 + "%");
+});
+
+window.addEventListener("pointerup", () => {
+  if (!resizeSession) return;
+  resizeSession = null;
+  document.body.classList.remove("resizing-panels");
+  persist();
+  render();
 });
 
 app.addEventListener("scroll", (event) => {
