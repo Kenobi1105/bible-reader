@@ -5,13 +5,15 @@ import { isMorphologyTranslation, loadMorphologyBook, morphologySourceLabel } fr
 
 const app = document.querySelector("#app");
 const defaultState = {
-  canvasVersion: 3,
+  canvasVersion: 4,
   canvases: [
-    { activeTab: "canvas-0-tab-1", tabs: [{ id: "canvas-0-tab-1", label: "John 1", reference: { book: "John", chapter: 1, verse: 1 }, translation: "NET", scope: "chapter", view: "paragraph" }] },
-    { activeTab: "canvas-1-tab-1", tabs: [{ id: "canvas-1-tab-1", label: "John 1", reference: { book: "John", chapter: 1, verse: 1 }, translation: "SBLGNT", scope: "chapter", view: "paragraph" }] }
+    { mode: "reader", activeTab: "canvas-0-tab-1", tabs: [{ id: "canvas-0-tab-1", label: "John 1", reference: { book: "John", chapter: 1, verse: 1 }, translation: "NET", scope: "chapter", view: "paragraph" }] },
+    { mode: "reader", activeTab: "canvas-1-tab-1", tabs: [{ id: "canvas-1-tab-1", label: "John 1", reference: { book: "John", chapter: 1, verse: 1 }, translation: "SBLGNT", scope: "chapter", view: "paragraph" }] },
+    { mode: "reader", activeTab: "canvas-2-tab-1", tabs: [{ id: "canvas-2-tab-1", label: "John 1", reference: { book: "John", chapter: 1, verse: 1 }, translation: "NET", scope: "chapter", view: "paragraph" }] }
   ],
   activePane: 0,
-  split: false,
+  mobilePane: 0,
+  layout: 1,
   paneSync: false,
   studyOpen: false,
   navigatorOpen: false,
@@ -26,29 +28,39 @@ const defaultState = {
   notes: {},
   studyTab: "notes",
   noteMode: "rich",
-  selectedVerse: null
+  selectedVerse: null,
+  panelSettings: null
 };
 
 let state = loadState(defaultState);
-if (state.canvasVersion !== 3) {
+if (!Array.isArray(state.canvases)) {
   const legacyWorkspace = state.tabs?.find((tab) => tab.id === state.activeTab) || state.tabs?.[0];
   const legacyPanes = legacyWorkspace?.panes || defaultState.canvases.map((canvas) => canvas.tabs[0]);
   state.canvases = legacyPanes.slice(0, 2).map((pane, index) => {
     const id = "canvas-" + index + "-tab-1";
-    return { activeTab: id, tabs: [{ ...pane, id, label: displayReference(pane.reference), scope: "chapter" }] };
+    return { mode: "reader", activeTab: id, tabs: [{ ...pane, id, label: displayReference(pane.reference), scope: "chapter" }] };
   });
-  state.canvasVersion = 3;
-  state.split = false;
-  state.studyOpen = false;
-  state.navigatorOpen = false;
-  state.browseStage = "books";
 }
+if (state.canvasVersion < 4) state.layout = state.split ? 2 : 1;
+state.canvasVersion = 4;
 function createRecordId(prefix) {
   return prefix + "-" + (crypto.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2));
 }
 
+function createReaderCanvas(index) {
+  const id = "canvas-" + index + "-tab-1";
+  return { mode: "reader", lastUsed: 0, activeTab: id, tabs: [{ id, label: "John 1", reference: { book: "John", chapter: 1, verse: 1 }, translation: index === 1 ? "SBLGNT" : "NET", scope: "chapter", view: "paragraph" }] };
+}
+
+while (state.canvases.length < 3) state.canvases.push(createReaderCanvas(state.canvases.length));
+state.canvases = state.canvases.slice(0, 3);
+state.canvases.forEach((canvas) => { canvas.mode ||= "reader"; canvas.lastUsed ||= 0; });
+state.layout = Math.min(3, Math.max(1, Number(state.layout) || 1));
+
 state.selectedVerse = null;
 state.paneSync = Boolean(state.paneSync);
+state.panelSettings = Number.isInteger(state.panelSettings) ? state.panelSettings : null;
+state.mobilePane = Number.isInteger(state.mobilePane) ? state.mobilePane : state.activePane;
 state.bookmarks = (state.bookmarks || []).map((bookmark, index) => ({
   ...bookmark,
   id: bookmark.id || "bookmark-legacy-" + index + "-" + Date.now()
@@ -83,13 +95,35 @@ function canvasAt(index = state.activePane) {
   return state.canvases[index];
 }
 
+function isReaderCanvas(index) {
+  return canvasAt(index)?.mode !== "parse";
+}
+
+function visiblePaneIndexes() {
+  return Array.from({ length: state.layout }, (_, index) => index);
+}
+
+function readerPaneIndexes() {
+  return visiblePaneIndexes().filter(isReaderCanvas);
+}
+
+function activeReaderIndex() {
+  if (visiblePaneIndexes().includes(state.activePane) && isReaderCanvas(state.activePane)) return state.activePane;
+  return readerPaneIndexes()[0] ?? 0;
+}
+
 function paneAt(index = state.activePane) {
-  const canvas = canvasAt(index);
+  const canvas = canvasAt(isReaderCanvas(index) ? index : activeReaderIndex());
   return canvas.tabs.find((tab) => tab.id === canvas.activeTab) || canvas.tabs[0];
 }
 
 function activePane() {
-  return paneAt(state.activePane);
+  return paneAt(activeReaderIndex());
+}
+
+function markPaneUsed(index) {
+  const canvas = canvasAt(index);
+  if (canvas?.mode === "reader") canvas.lastUsed = Date.now();
 }
 
 function referenceKey(pane) {
@@ -196,13 +230,26 @@ function verseOptions(current) {
     .join("");
 }
 
+function readerSettingsMarkup(pane, paneIndex) {
+  const versionOptions = Object.entries(TRANSLATIONS).map(([id, item]) => {
+    const unavailable = !isTranslationApplicable(id, pane.reference);
+    const duplicateOriginal = pane.view === "interlinear" && id === interlinearTranslation(pane.reference);
+    return '<option value="' + id + '"' + (id === pane.translation ? " selected" : "") + (unavailable || duplicateOriginal ? " disabled" : "") + ">" + item.label + "</option>";
+  }).join("");
+  return '<div class="pane-settings-popover" data-pane-settings="' + paneIndex + '"><label>Version<select class="version-select" data-pane-version="' + paneIndex + '" aria-label="Bible version">' + versionOptions + '</select></label><label>Reading view<select class="reader-view-select" data-pane-view="' + paneIndex + '" aria-label="Reading layout"><option value="paragraph"' + (pane.view === "paragraph" ? " selected" : "") + '>Paragraph</option><option value="lines"' + (pane.view === "lines" ? " selected" : "") + '>One verse per line</option><option value="interlinear"' + (pane.view === "interlinear" ? " selected" : "") + '>Interlinear</option><option value="compare"' + (pane.view === "compare" ? " selected" : "") + (pane.scope !== "verse" ? " disabled" : "") + '>Compare versions</option></select></label></div>';
+}
+
 function renderCanvasTabs(paneIndex) {
   const canvas = canvasAt(paneIndex);
+  const pane = paneAt(paneIndex);
+  const parseControl = displayedMorphologyIds(pane).length
+    ? '<label class="parse-toggle canvas-parse-toggle" title="Open word parsing when you click Hebrew or Greek"><input type="checkbox" data-pane-parse="' + paneIndex + '"' + (pane.parseEnabled ? " checked" : "") + '><span>Parse</span></label>'
+    : "";
   return '<div class="canvas-tabs">' + canvas.tabs.map((item) =>
     '<button class="canvas-tab ' + (item.id === canvas.activeTab ? "active" : "") + '" data-canvas-tab="' + paneIndex + "|" + item.id + '">' +
       '<span>' + escapeHtml(item.label) + '</span><span class="tab-close" data-close-canvas-tab="' + paneIndex + "|" + item.id + '" title="Close tab">' + icon("x") + "</span>" +
     "</button>"
-  ).join("") + '<button class="canvas-tab-add" data-canvas-new="' + paneIndex + '" title="New passage tab">' + icon("plus") + "</button></div>";
+  ).join("") + '<button class="canvas-tab-add" data-canvas-new="' + paneIndex + '" title="New passage tab">' + icon("plus") + '</button><span class="canvas-tab-spacer"></span>' + parseControl + (state.panelSettings === paneIndex ? readerSettingsMarkup(pane, paneIndex) : "") + "</div>";
 }
 
 function renderReferenceBrowser() {
@@ -253,15 +300,16 @@ function renderReferenceBrowser() {
 
 function renderWorkspaceHeader() {
   const reference = displayReference(activePane().reference);
+  const visiblePanels = visiblePaneIndexes();
   return '<header class="workspace-header"><div class="brand compact"><div class="brand-mark">' + icon("book-open") + '</div><div>Scripture Desk</div></div>' +
     '<div class="header-actions"><div class="reference-entry">' + icon("search") +
       '<input id="reference-search" value="' + escapeHtml(reference) + '" aria-label="Find a reference" placeholder="John 3:16" />' +
       '<button class="browse-trigger" data-action="toggle-browser" title="Browse book, chapter, and verse">' + icon("chevron-down") + '<span>Browse</span></button></div>' +
       '<button class="icon-button ' + (state.studyOpen ? "active" : "") + '" data-action="toggle-study" title="Study tools">' + icon("notebook-pen") + "</button>" +
-      '<button class="icon-button ' + (state.split ? "active" : "") + '" data-action="split" title="Toggle split screen">' + icon("columns-2") + "</button>" +
-      (state.split ? '<button class="icon-button ' + (state.paneSync ? "active" : "") + '" data-action="toggle-pane-sync" title="' + (state.paneSync ? "Unsync reader panes" : "Sync reader panes") + '">' + icon(state.paneSync ? "link-2" : "unlink-2") + "</button>" : "") +
+      '<button class="icon-button ' + (state.layout > 1 ? "active" : "") + '" data-action="cycle-layout" title="Reader layout: ' + state.layout + ' panel' + (state.layout === 1 ? "" : "s") + '">' + icon(state.layout === 1 ? "square" : state.layout === 2 ? "columns-2" : "columns-3") + "</button>" +
+      (state.layout > 1 ? '<button class="icon-button ' + (state.paneSync ? "active" : "") + '" data-action="toggle-pane-sync" title="' + (state.paneSync ? "Unsync reader panes" : "Sync reader panes") + '">' + icon(state.paneSync ? "link-2" : "unlink-2") + "</button>" : "") +
       '<button class="icon-button" data-action="settings" title="Reader settings">' + icon("sliders-horizontal") + "</button></div>" +
-    (state.split ? '<div class="mobile-pane-switch"><button data-mobile-pane="0" class="' + (state.activePane === 0 ? "active" : "") + '">' + paneAt(0).translation + '</button><button data-mobile-pane="1" class="' + (state.activePane === 1 ? "active" : "") + '">' + paneAt(1).translation + "</button></div>" : "") +
+    (state.layout > 1 ? '<div class="mobile-pane-switch">' + visiblePanels.map((index) => '<button data-mobile-pane="' + index + '" class="' + (state.mobilePane === index ? "active" : "") + '">' + (isReaderCanvas(index) ? paneAt(index).translation : "Parse") + "</button>").join("") + "</div>" : "") +
   "</header>";
 }
 
@@ -296,9 +344,10 @@ function parsedVerseMarkup(pane, translationId, verse) {
   const morphology = morphologyData[morphologyKey(translationId, pane.reference.book)];
   const words = morphology?.verses?.[pane.reference.chapter + ":" + verse.number];
   if (!words?.length) return escapeHtml(verse.text);
-  return words.map((word) => {
+  const reference = verseReference(pane, verse.number);
+  return words.map((word, index) => {
     const title = "Lemma: " + (word.lemma || "Not listed") + "\nParsing: " + (word.description || "Not listed") + "\nCode: " + (word.morphology || "Not listed");
-    return '<span class="morph-word" tabindex="0" title="' + escapeHtml(title) + '">' + escapeHtml(word.surface) + "</span>";
+    return '<span class="morph-word" tabindex="0" title="' + escapeHtml(title) + '" data-morph-word="' + index + '" data-morph-translation="' + translationId + '" data-morph-reference="' + escapeHtml(reference) + '" data-morph-book="' + escapeHtml(pane.reference.book) + '">' + escapeHtml(word.surface) + "</span>";
   }).join(" ");
 }
 
@@ -385,18 +434,7 @@ function renderPane(pane, paneIndex) {
   const result = loadedResult || pane.fallback?.result;
   const displayTranslation = showingFallback ? TRANSLATIONS[pane.fallback.translation] : translation;
   const verses = scopedVerses(pane, result?.verses || []);
-  const currentRef = displayReference(pane.reference);
-  const morphologyIds = displayedMorphologyIds(pane);
-  const parseControl = morphologyIds.length
-    ? '<label class="parse-toggle" title="Show word lemma and grammar when you hover"><input type="checkbox" data-pane-parse="' + paneIndex + '"' + (pane.parseEnabled ? " checked" : "") + '><span>Parse</span></label>'
-    : "";
-  const classes = "reader-pane paper-" + state.paper + " view-" + pane.view + (displayTranslation.script ? " lang-" + displayTranslation.script : "") + (paneIndex === state.activePane ? " active-pane" : "");
-  const versionOptions = Object.entries(TRANSLATIONS).map(([id, item]) => {
-    const unavailable = !isTranslationApplicable(id, pane.reference);
-    const duplicateOriginal = pane.view === "interlinear" && id === interlinearTranslation(pane.reference);
-    return '<option value="' + id + '"' + (id === pane.translation ? " selected" : "") + (unavailable || duplicateOriginal ? " disabled" : "") + ">" + item.label + "</option>";
-  }
-  ).join("");
+  const classes = "reader-pane paper-" + state.paper + " view-" + pane.view + (displayTranslation.script ? " lang-" + displayTranslation.script : "") + (paneIndex === state.activePane ? " active-pane" : "") + (state.mobilePane === paneIndex ? " mobile-active" : "");
   const offlineStatus = pane.loading ? '<span class="offline-status loading-status">' + icon("loader-circle") + "Loading " + translation.label + "</span>" : !navigator.onLine ? '<span class="offline-status">' + icon("wifi-off") + "Offline · " + translation.label + "</span>" : "";
   const displayTranslationId = showingFallback ? pane.fallback.translation : pane.translation;
   const versesHtml = pane.view === "interlinear" ? interlinearMarkup(pane, paneIndex) : pane.view === "compare" ? comparisonMarkup(pane, paneIndex) : verses.length ? normalVersesMarkup(pane, paneIndex, verses, displayTranslation, displayTranslationId) : emptyReader(displayTranslation, result);
@@ -404,14 +442,22 @@ function renderPane(pane, paneIndex) {
     ? '<div class="passage-choice chapter-return"><button class="show-chapter" data-action="show-whole-chapter" data-pane-index="' + paneIndex + '">' + icon("maximize-2") + "Show whole chapter</button></div>"
     : "";
   return '<article class="' + classes + '" data-activate-pane="' + paneIndex + '">' + renderCanvasTabs(paneIndex) +
-    '<div class="pane-header"><div class="pane-topline"><select class="version-select" data-pane-version="' + paneIndex + '" aria-label="Bible version">' + versionOptions + '</select><select class="reader-view-select" data-pane-view="' + paneIndex + '" aria-label="Reading layout"><option value="paragraph"' + (pane.view === "paragraph" ? " selected" : "") + '>Paragraph</option><option value="lines"' + (pane.view === "lines" ? " selected" : "") + '>One verse per line</option><option value="interlinear"' + (pane.view === "interlinear" ? " selected" : "") + '>Interlinear</option><option value="compare"' + (pane.view === "compare" ? " selected" : "") + (pane.scope !== "verse" ? " disabled" : "") + '>Compare versions</option></select>' + parseControl + offlineStatus + '</div>' +
-      '<div class="chapter-nav"><button class="chapter-arrow" data-chapter-nav="' + paneIndex + '|-1" title="Previous chapter">' + icon("chevron-left") + '</button><div>' +
+    '<div class="pane-header">' + (offlineStatus ? '<div class="pane-topline">' + offlineStatus + "</div>" : "") + '<div class="chapter-nav"><button class="chapter-arrow" data-chapter-nav="' + paneIndex + '|-1" title="Previous chapter">' + icon("chevron-left") + '</button><div>' +
       '<h1 class="chapter-title">' + escapeHtml(pane.reference.book) + " " + pane.reference.chapter + '</h1><p class="pane-meta">' + escapeHtml(displayTranslation.name) + " · " + escapeHtml(displayTranslation.language) + "</p></div>" +
       '<button class="chapter-arrow" data-chapter-nav="' + paneIndex + '|1" title="Next chapter">' + icon("chevron-right") + "</button></div></div>" +
     contextControl + versesHtml +
     '<div class="source-status ' + (result?.error ? "warning" : "") + '">' + icon(result?.error ? "circle-alert" : "cloud-check") +
       "<span>" + escapeHtml(morphologyStatus(pane) || (pane.loading ? "Loading " + translation.label + " while keeping the current text visible..." : result?.message || "Loading chapter...")) + "</span></div>" +
   "</article>";
+}
+
+function renderParsePane(canvas, paneIndex) {
+  const data = canvas.parseData;
+  const translation = TRANSLATIONS[data?.translation] || {};
+  const direction = translation.direction || "ltr";
+  const classes = "parse-pane paper-" + state.paper + (state.mobilePane === paneIndex ? " mobile-active" : "");
+  if (!data) return '<article class="' + classes + '"><div class="parse-pane-header"><span>Parsing</span><button class="format-button" data-action="close-parse-panel" data-pane-index="' + paneIndex + '" title="Close parsing panel">' + icon("x") + '</button></div><div class="parse-empty">Select a parsed Hebrew or Greek word.</div></article>';
+  return '<article class="' + classes + '"><div class="parse-pane-header"><div><span class="parse-kicker">' + escapeHtml(data.translation) + '</span><strong>Word parsing</strong></div><button class="format-button" data-action="close-parse-panel" data-pane-index="' + paneIndex + '" title="Restore reader panel">' + icon("x") + '</button></div><div class="parse-content" dir="' + direction + '"><div class="parse-reference">' + escapeHtml(data.reference) + '</div><div class="parse-word">' + escapeHtml(data.word.surface) + '</div><dl><div><dt>Lemma</dt><dd>' + escapeHtml(data.word.lemma || "Not listed") + '</dd></div><div><dt>Parsing</dt><dd>' + escapeHtml(data.word.description || "Not listed") + '</dd></div><div><dt>Code</dt><dd class="parse-code">' + escapeHtml(data.word.morphology || "Not listed") + '</dd></div></dl><p class="parse-source">' + escapeHtml(morphologySourceLabel(data.translation)) + '</p></div></article>';
 }
 
 function htmlToMarkdown(html) {
@@ -481,8 +527,8 @@ function bookmarksMarkup() {
   return '<div class="bookmark-panel"><div class="note-reference"><span>Saved passages</span><span>' + state.bookmarks.length + "</span></div>" + cards + "</div>";
 }
 
-function renderStudyPanel() {
-  return '<aside class="study-panel"><div class="study-tabs">' +
+function renderStudyPanel(drawer = false) {
+  return '<aside class="study-panel' + (drawer ? " study-drawer" : "") + '">' + (drawer ? '<button class="study-drawer-close" data-action="toggle-study" title="Close study tools">' + icon("x") + "</button>" : "") + '<div class="study-tabs">' +
     '<button data-study-tab="notes" class="' + (state.studyTab === "notes" ? "active" : "") + '">Notes</button>' +
     '<button data-study-tab="bookmarks" class="' + (state.studyTab === "bookmarks" ? "active" : "") + '">Bookmarks</button>' +
   "</div>" + (state.studyTab === "notes" ? noteMarkup() : bookmarksMarkup()) + "</aside>";
@@ -523,12 +569,13 @@ function render() {
     if (pane) paneScrollPositions[pane.dataset.activatePane] = list.scrollTop;
   });
   setRootTheme();
-  const paneIndexes = state.split ? [0, 1] : [state.activePane];
-  const paneGrid = state.split ? "split" : "single";
+  const paneIndexes = visiblePaneIndexes();
+  const paneGrid = state.layout === 1 ? "single" : state.layout === 2 ? "split" : "triple";
+  const studyDrawer = state.studyOpen && state.layout === 3;
   app.innerHTML = '<main class="reader-shell">' + renderWorkspaceHeader() + renderReferenceBrowser() +
-    '<div class="desk ' + (state.studyOpen ? "study-open" : "") + '"><section class="reading-area"><div class="pane-grid ' + paneGrid + '">' +
-      paneIndexes.map((paneIndex) => renderPane(paneAt(paneIndex), paneIndex)).join("") +
-    "</div></section>" + (state.studyOpen ? renderStudyPanel() : "") + "</div></main>" + renderSettings() + renderPopover();
+    '<div class="desk ' + (state.studyOpen && !studyDrawer ? "study-open" : "") + (studyDrawer ? " study-drawer-open" : "") + '"><section class="reading-area"><div class="pane-grid ' + paneGrid + '">' +
+      paneIndexes.map((paneIndex) => isReaderCanvas(paneIndex) ? renderPane(paneAt(paneIndex), paneIndex) : renderParsePane(canvasAt(paneIndex), paneIndex)).join("") +
+    "</div></section>" + (state.studyOpen ? renderStudyPanel(studyDrawer) : "") + "</div></main>" + renderSettings() + renderPopover();
   if (window.lucide) window.lucide.createIcons();
   document.querySelectorAll(".reader-pane[data-activate-pane] .verse-list").forEach((list) => {
     const pane = list.closest("[data-activate-pane]");
@@ -611,8 +658,7 @@ async function loadPane(pane) {
 }
 
 function loadVisiblePanes() {
-  const paneIndexes = state.split ? [0, 1] : [state.activePane];
-  paneIndexes.map((index) => paneAt(index)).forEach(loadPane);
+  readerPaneIndexes().map((index) => paneAt(index)).forEach(loadPane);
 }
 
 function closeOverlays() {
@@ -683,24 +729,37 @@ function newCanvasTab(paneIndex = state.activePane) {
   canvas.tabs.push(pane);
   canvas.activeTab = id;
   state.activePane = paneIndex;
+  state.mobilePane = paneIndex;
+  state.panelSettings = null;
+  markPaneUsed(paneIndex);
   state.navigatorOpen = false;
   persist();
   render();
   loadVisiblePanes();
 }
 
+function setLayout(layout) {
+  state.layout = Math.min(3, Math.max(1, layout));
+  if (!readerPaneIndexes().includes(state.activePane)) state.activePane = readerPaneIndexes()[0] ?? 0;
+  if (!visiblePaneIndexes().includes(state.mobilePane)) state.mobilePane = state.activePane;
+  state.panelSettings = null;
+  persist();
+  render();
+  loadVisiblePanes();
+}
+
 function syncPartnerPane(sourceIndex, next) {
-  if (!state.split || !state.paneSync) return false;
-  const targetIndex = sourceIndex === 0 ? 1 : 0;
+  if (state.layout < 2 || !state.paneSync) return false;
   const sourcePane = paneAt(sourceIndex);
-  const targetPane = paneAt(targetIndex);
-  const targetScope = targetPane.view === "compare" ? "verse" : sourcePane.scope;
-  targetPane.reference = { ...next };
-  targetPane.label = displayReference(next);
-  targetPane.scope = targetScope;
-  targetPane.fallback = null;
-  updateOfflineVersion(targetPane);
-  queueArrival(targetIndex, next);
+  readerPaneIndexes().filter((index) => index !== sourceIndex).forEach((targetIndex) => {
+    const targetPane = paneAt(targetIndex);
+    targetPane.reference = { ...next };
+    targetPane.label = displayReference(next);
+    targetPane.scope = targetPane.view === "compare" ? "verse" : sourcePane.scope;
+    targetPane.fallback = null;
+    updateOfflineVersion(targetPane);
+    queueArrival(targetIndex, next);
+  });
   return true;
 }
 
@@ -712,8 +771,11 @@ function changePaneReference(paneIndex, next) {
   if (pane.view === "compare") pane.view = "paragraph";
   updateOfflineVersion(pane);
   state.activePane = paneIndex;
+  state.mobilePane = paneIndex;
   state.selectedVerse = null;
   state.navigatorOpen = false;
+  state.panelSettings = null;
+  markPaneUsed(paneIndex);
   queueArrival(paneIndex, next);
   syncPartnerPane(paneIndex, next);
   persist();
@@ -733,10 +795,15 @@ function navigateChapter(paneIndex, direction) {
 
 function activateVerseFocus() {
   const sourceIndex = state.activePane;
-  const targetIndex = sourceIndex === 0 ? 1 : 0;
   const sourcePane = paneAt(sourceIndex);
   const reference = parseReference(popoverVerse);
   if (!reference) return;
+  let targetIndex = readerPaneIndexes().find((index) => index !== sourceIndex);
+  if (targetIndex === undefined) {
+    targetIndex = Math.min(state.layout, 2);
+    state.layout = Math.max(state.layout, targetIndex + 1);
+    canvasAt(targetIndex).mode = "reader";
+  }
 
   const focusedPane = paneAt(targetIndex);
   focusedPane.reference = reference;
@@ -745,11 +812,51 @@ function activateVerseFocus() {
   focusedPane.scope = "verse";
   focusedPane.view = "compare";
   focusedPane.fallback = null;
-  state.split = true;
   state.activePane = targetIndex;
+  state.mobilePane = targetIndex;
   state.selectedVerse = null;
   popoverVerse = null;
   queueArrival(targetIndex, reference);
+  persist();
+  render();
+  loadVisiblePanes();
+}
+
+function openParsingPanel(target) {
+  const translation = target.dataset.morphTranslation;
+  const book = target.dataset.morphBook;
+  const reference = target.dataset.morphReference;
+  const index = Number(target.dataset.morphWord);
+  const parsed = parseReference(reference);
+  const words = morphologyData[morphologyKey(translation, book)]?.verses?.[parsed?.chapter + ":" + parsed?.verse];
+  const word = words?.[index];
+  if (!parsed || !word) return;
+  let parseIndex = visiblePaneIndexes().find((paneIndex) => canvasAt(paneIndex).mode === "parse");
+  if (parseIndex === undefined) {
+    if (state.layout < 3) {
+      parseIndex = state.layout;
+      state.layout += 1;
+    } else {
+      const candidates = readerPaneIndexes().filter((paneIndex) => paneIndex !== state.activePane);
+      parseIndex = candidates.sort((left, right) => (canvasAt(left).lastUsed || 0) - (canvasAt(right).lastUsed || 0))[0] ?? state.activePane;
+    }
+  }
+  const canvas = canvasAt(parseIndex);
+  canvas.mode = "parse";
+  canvas.parseData = { translation, book, reference, word };
+  state.panelSettings = null;
+  state.mobilePane = parseIndex;
+  persist();
+  render();
+}
+
+function closeParsingPanel(paneIndex) {
+  const canvas = canvasAt(paneIndex);
+  canvas.mode = "reader";
+  delete canvas.parseData;
+  if (paneIndex === state.layout - 1) state.layout = Math.max(1, state.layout - 1);
+  state.activePane = activeReaderIndex();
+  state.mobilePane = state.activePane;
   persist();
   render();
   loadVisiblePanes();
@@ -815,10 +922,19 @@ app.addEventListener("click", async (event) => {
   const pickerTrigger = event.target.closest('[data-action="toggle-browser"]');
   const insideVersePopover = event.target.closest("#verse-popover");
   const clickedVerse = event.target.closest("[data-verse]");
+  const morphWord = event.target.closest("[data-morph-word]");
   const formatControl = event.target.closest("[data-format]");
   const selectionCleared = !formatControl && !clickedVerse && !insideVersePopover && clearVerseSelection();
   if (state.navigatorOpen && !insidePicker && !pickerTrigger) state.navigatorOpen = false;
   if (formatControl) return;
+  if (morphWord) {
+    const sourcePane = morphWord.closest("[data-activate-pane]");
+    if (sourcePane) {
+      state.activePane = Number(sourcePane.dataset.activatePane);
+      markPaneUsed(state.activePane);
+    }
+    return openParsingPanel(morphWord);
+  }
   const close = event.target.closest("[data-close-canvas-tab]");
   if (close) {
     event.stopPropagation();
@@ -832,14 +948,28 @@ app.addEventListener("click", async (event) => {
   const canvasTab = event.target.closest("[data-canvas-tab]");
   if (canvasTab) {
     const [paneIndex, id] = canvasTab.dataset.canvasTab.split("|");
-    canvasAt(Number(paneIndex)).activeTab = id;
-    state.activePane = Number(paneIndex);
+    const index = Number(paneIndex);
+    const canvas = canvasAt(index);
+    if (canvas.activeTab === id) {
+      state.panelSettings = state.panelSettings === index ? null : index;
+    } else {
+      canvas.activeTab = id;
+      state.panelSettings = null;
+    }
+    state.activePane = index;
+    state.mobilePane = index;
+    markPaneUsed(index);
     persist(); render(); loadVisiblePanes(); return;
   }
   const canvasNew = event.target.closest("[data-canvas-new]");
   if (canvasNew) return newCanvasTab(Number(canvasNew.dataset.canvasNew));
   const mobilePane = event.target.closest("[data-mobile-pane]");
-  if (mobilePane) { state.activePane = Number(mobilePane.dataset.mobilePane); persist(); render(); return; }
+  if (mobilePane) {
+    const paneIndex = Number(mobilePane.dataset.mobilePane);
+    state.mobilePane = paneIndex;
+    if (isReaderCanvas(paneIndex)) { state.activePane = paneIndex; markPaneUsed(paneIndex); }
+    persist(); render(); return;
+  }
   const chapterNav = event.target.closest("[data-chapter-nav]");
   if (chapterNav) { const parts = chapterNav.dataset.chapterNav.split("|"); navigateChapter(Number(parts[0]), Number(parts[1])); return; }
   const browseBook = event.target.closest("[data-browse-book]");
@@ -913,6 +1043,9 @@ app.addEventListener("click", async (event) => {
     const paneIndex = Number(pane.dataset.activatePane);
     if (selectionCleared || state.activePane !== paneIndex) {
       state.activePane = paneIndex;
+      state.mobilePane = paneIndex;
+      state.panelSettings = null;
+      markPaneUsed(paneIndex);
       persist();
       render();
     }
@@ -937,15 +1070,18 @@ app.addEventListener("click", async (event) => {
   const actionTarget = event.target.closest("[data-action]");
   if (!actionTarget) {
     if (event.target.closest("select, input, textarea, [contenteditable=true]")) { persist(); return; }
-    if (!event.target.closest("#verse-popover") && !event.target.closest("#settings-menu")) closeOverlays();
+    if (!event.target.closest("#verse-popover") && !event.target.closest("#settings-menu") && !event.target.closest(".pane-settings-popover")) {
+      closeOverlays();
+      state.panelSettings = null;
+    }
     persist(); render();
     return;
   }
   const action = actionTarget.dataset.action;
-  if (action === "split") { state.split = !state.split; persist(); render(); loadVisiblePanes(); return; }
+  if (action === "cycle-layout") return setLayout(state.layout === 3 ? 1 : state.layout + 1);
   if (action === "toggle-pane-sync") {
     state.paneSync = !state.paneSync;
-    if (state.paneSync) syncPartnerPane(state.activePane, activePane().reference);
+    if (state.paneSync) syncPartnerPane(activeReaderIndex(), activePane().reference);
     persist(); render(); loadVisiblePanes(); return;
   }
   if (action === "toggle-browser") {
@@ -960,6 +1096,7 @@ app.addEventListener("click", async (event) => {
     persist(); render(); return;
   }
   if (action === "toggle-study") { state.studyOpen = !state.studyOpen; persist(); render(); return; }
+  if (action === "close-parse-panel") return closeParsingPanel(Number(actionTarget.dataset.paneIndex));
   if (action === "settings") return openSettings(actionTarget);
   if (action === "dark-mode") { state.dark = !state.dark; persist(); render(); return; }
   if (action === "cycle-compare-cuv") {
@@ -1008,6 +1145,8 @@ app.addEventListener("change", (event) => {
     const pane = paneAt(Number(paneParse));
     pane.parseEnabled = event.target.checked;
     state.activePane = Number(paneParse);
+    state.mobilePane = Number(paneParse);
+    markPaneUsed(state.activePane);
     persist();
     render();
     ensurePaneMorphology(pane);
@@ -1020,6 +1159,9 @@ app.addEventListener("change", (event) => {
     if (pane.view === "compare" && pane.scope !== "verse") pane.view = "paragraph";
     if (pane.view === "interlinear" && pane.translation === interlinearTranslation(pane.reference)) pane.translation = "NET";
     state.activePane = Number(paneView);
+    state.mobilePane = Number(paneView);
+    state.panelSettings = null;
+    markPaneUsed(state.activePane);
     persist(); render(); loadVisiblePanes(); return;
   }
   const paneVersion = event.target.dataset.paneVersion;
@@ -1030,6 +1172,9 @@ app.addEventListener("change", (event) => {
     pane.translation = event.target.value;
     updateOfflineVersion(pane);
     state.activePane = Number(paneVersion);
+    state.mobilePane = Number(paneVersion);
+    state.panelSettings = null;
+    markPaneUsed(state.activePane);
     persist(); render(); loadVisiblePanes(); return;
   }
   const control = event.target.dataset.control;
@@ -1054,7 +1199,7 @@ app.addEventListener("input", (event) => {
 
 app.addEventListener("dblclick", (event) => {
   const verse = event.target.closest("[data-verse]");
-  if (!verse || event.target.closest("[data-action]")) return;
+  if (!verse || event.target.closest("[data-action], [data-morph-word]")) return;
   const paneIndex = Number(verse.dataset.pane);
   if (paneAt(paneIndex).view === "compare") return;
   state.activePane = paneIndex;
@@ -1065,6 +1210,7 @@ app.addEventListener("dblclick", (event) => {
 
 app.addEventListener("mouseup", (event) => {
   if (event.button !== 0 || event.detail !== 1) return;
+  if (event.target.closest("[data-morph-word]")) return;
   const verse = event.target.closest("[data-verse]");
   if (!verse || paneAt(Number(verse.dataset.pane)).view === "compare") return;
   const selection = window.getSelection();
@@ -1088,7 +1234,7 @@ app.addEventListener("mouseup", (event) => {
 
 app.addEventListener("scroll", (event) => {
   const list = event.target;
-  if (!(list instanceof Element) || !list.matches(".verse-list") || !state.split || !state.paneSync || syncScrollLocked) return;
+  if (!(list instanceof Element) || !list.matches(".verse-list") || state.layout < 2 || !state.paneSync || syncScrollLocked) return;
   const readerPane = list.closest("[data-activate-pane]");
   if (!readerPane) return;
   const sourceIndex = Number(readerPane.dataset.activatePane);
@@ -1104,15 +1250,16 @@ app.addEventListener("scroll", (event) => {
   const key = sourceIndex + "|" + referenceLabel;
   if (key === lastSyncedScrollReference) return;
   lastSyncedScrollReference = key;
-  const targetIndex = sourceIndex === 0 ? 1 : 0;
-  const targetPane = paneAt(targetIndex);
-  if (targetPane.reference.book !== reference.book || Number(targetPane.reference.chapter) !== Number(reference.chapter)) return;
-  const targetList = document.querySelector('[data-activate-pane="' + targetIndex + '"] .verse-list');
-  const targetVerse = document.querySelector('[data-activate-pane="' + targetIndex + '"] [data-verse="' + referenceLabel + '"]');
-  if (!targetList || !targetVerse) return;
   syncScrollLocked = true;
-  const offset = targetList.scrollTop + targetVerse.getBoundingClientRect().top - targetList.getBoundingClientRect().top - 16;
-  targetList.scrollTo({ top: Math.max(0, offset), behavior: "auto" });
+  readerPaneIndexes().filter((targetIndex) => targetIndex !== sourceIndex).forEach((targetIndex) => {
+    const targetPane = paneAt(targetIndex);
+    if (targetPane.reference.book !== reference.book || Number(targetPane.reference.chapter) !== Number(reference.chapter)) return;
+    const targetList = document.querySelector('[data-activate-pane="' + targetIndex + '"] .verse-list');
+    const targetVerse = document.querySelector('[data-activate-pane="' + targetIndex + '"] [data-verse="' + referenceLabel + '"]');
+    if (!targetList || !targetVerse) return;
+    const offset = targetList.scrollTop + targetVerse.getBoundingClientRect().top - targetList.getBoundingClientRect().top - 16;
+    targetList.scrollTo({ top: Math.max(0, offset), behavior: "auto" });
+  });
   setTimeout(() => { syncScrollLocked = false; }, 80);
 }, true);
 
