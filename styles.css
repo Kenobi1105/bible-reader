@@ -639,8 +639,8 @@ body.dark .reveal-title { border-color: var(--border); }
 }
 
 /* Adjustable one- and two-panel desk layouts */
-.pane-grid.single { grid-template-columns: minmax(460px, var(--single-panel-width)) 12px; width: min(100%, calc(var(--single-panel-width) + 12px)); max-width: none; justify-content: center; }
-.pane-grid.split { grid-template-columns: minmax(360px, var(--left-panel-width)) 12px minmax(320px, 1fr); max-width: 1800px; }
+.pane-grid.single { grid-template-columns: minmax(460px, var(--single-panel-width)) 6px; gap: 4px; width: min(100%, calc(var(--single-panel-width) + 10px)); max-width: none; justify-content: center; }
+.pane-grid.split { grid-template-columns: minmax(360px, var(--left-panel-width)) 6px minmax(320px, 1fr); gap: 4px; max-width: 1800px; }
 .pane-resizer { position: relative; z-index: 3; min-height: 100%; cursor: col-resize; touch-action: none; user-select: none; }
 .pane-resizer::after { position: absolute; top: 50%; left: 50%; width: 3px; height: 44px; border-radius: 99px; background: transparent; content: ""; transform: translate(-50%, -50%); transition: background .15s ease; }
 .pane-resizer:hover::after, body.resizing-panels .pane-resizer::after { background: rgba(73,53,72,.32); }

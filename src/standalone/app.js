@@ -1340,7 +1340,7 @@ window.addEventListener("pointermove", (event) => {
     return;
   }
   const rect = resizeSession.grid.getBoundingClientRect();
-  const available = Math.max(1, rect.width - 12);
+  const available = Math.max(1, rect.width - 14);
   const leftMinimum = 360;
   const rightMinimum = canvasAt(1).mode === "parse" ? 310 : 360;
   const leftWidth = Math.min(available - rightMinimum, Math.max(leftMinimum, event.clientX - rect.left));
