@@ -2,7 +2,7 @@ import { BOOKS, chapterCount, displayReference, isOldTestament, moveChapter, par
 import { TRANSLATIONS, getChapter } from "../core/bible-sources.js?v=3";
 import { downloadFile, loadCachedChapter, loadState, saveCachedChapter, saveState } from "../core/storage.js?v=2";
 import { isMorphologyTranslation, loadMorphologyBook, morphologySourceLabel } from "../core/morphology.js";
-import { getSblApparatusUnit, getSblApparatusUnits, loadSblApparatus } from "../core/sbl-apparatus.js?v=1";
+import { getSblApparatusUnit, getSblApparatusUnits, loadSblApparatus } from "../core/sbl-apparatus.js?v=2";
 
 const app = document.querySelector("#app");
 const defaultState = {
@@ -100,8 +100,8 @@ let multiVerseSelection = [];
 let syncScrollLocked = false;
 let lastSyncedScrollReference = "";
 let resizeSession = null;
-let apparatusLoading = false;
-let apparatusReady = false;
+let apparatusLoading = new Set();
+let apparatusReady = new Set();
 
 function icon(name) {
   return '<i data-lucide="' + name + '"></i>';
@@ -424,7 +424,7 @@ function greekTokens(value) {
 function apparatusRanges(text, reference) {
   const tokens = greekTokens(text);
   let cursor = 0;
-  return getSblApparatusUnits(reference).map((unit) => {
+  return getSblApparatusUnits(reference).filter((unit) => !unit.range).map((unit) => {
     const lemma = greekTokens(unit.lemma).map((token) => token.value);
     if (!lemma.length) return null;
     for (let index = cursor; index <= tokens.length - lemma.length; index += 1) {
@@ -438,21 +438,47 @@ function apparatusRanges(text, reference) {
 }
 
 function apparatusTooltip(unit) {
+  if (unit.range) {
+    const start = unit.range.start;
+    const end = unit.range.end;
+    return "SBLGNT doubtful passage: " + start.book + " " + start.chapter + ":" + start.verse + "–" + end.chapter + ":" + end.verse;
+  }
   const alternate = unit.readings.find((reading) => reading.text !== unit.lemma) || unit.readings[1];
   const witnesses = alternate?.witnesses?.length ? " · " + alternate.witnesses.join(", ") : "";
   return "SBLGNT apparatus: " + (alternate?.text || "variant reading") + witnesses;
 }
 
+function apparatusTargetAttributes(unit, reference) {
+  return 'tabindex="0" role="button" data-apparatus-id="' + unit.id + '" data-apparatus-tooltip="' + escapeHtml(apparatusTooltip(unit)) + '" aria-label="Open textual variant for ' + escapeHtml(reference) + '"';
+}
+
+function markerUnitForPosition(index, ranges, units) {
+  const direct = ranges.find((unit) => index >= unit.start - 1 && index <= unit.end);
+  return direct || units.find((unit) => unit.range) || null;
+}
+
 function sblApparatusMarkup(text, reference) {
+  const units = getSblApparatusUnits(reference);
   const ranges = apparatusRanges(text, reference);
-  if (!ranges.length) return escapeHtml(text);
-  let cursor = 0;
-  return ranges.map((unit) => {
-    const before = escapeHtml(text.slice(cursor, unit.start));
-    const marked = '<span class="apparatus-anchor" tabindex="0" role="button" data-apparatus-id="' + unit.id + '" data-apparatus-tooltip="' + escapeHtml(apparatusTooltip(unit)) + '" aria-label="Open textual variant for ' + escapeHtml(reference) + '">' + escapeHtml(text.slice(unit.start, unit.end)) + "</span>";
-    cursor = unit.end;
-    return before + marked;
-  }).join("") + escapeHtml(text.slice(cursor));
+  const wordTargets = [...ranges, ...units.filter((unit) => unit.range).map((unit) => ({ ...unit, start: 0, end: text.length }))];
+  const markers = Array.from(text.matchAll(/[⸀⸁⸂⸃⸄⸅⟦⟧\[\]]/gu)).map((match) => ({
+    start: match.index,
+    end: match.index + match[0].length,
+    unit: markerUnitForPosition(match.index, ranges, units)
+  })).filter((marker) => marker.unit);
+  if (!wordTargets.length && !markers.length) return escapeHtml(text);
+
+  const boundaries = new Set([0, text.length]);
+  [...wordTargets, ...markers].forEach((target) => { boundaries.add(target.start); boundaries.add(target.end); });
+  const points = [...boundaries].sort((left, right) => left - right);
+  return points.slice(0, -1).map((start, index) => {
+    const end = points[index + 1];
+    const segment = escapeHtml(text.slice(start, end));
+    const word = wordTargets.find((target) => start >= target.start && end <= target.end);
+    const marker = markers.find((target) => start >= target.start && end <= target.end);
+    const wrapped = marker ? '<span class="apparatus-marker" ' + apparatusTargetAttributes(marker.unit, reference) + ">" + segment + "</span>" : segment;
+    return word ? '<span class="apparatus-affected" ' + apparatusTargetAttributes(word, reference) + ">" + wrapped + "</span>" : wrapped;
+  }).join("");
 }
 
 function parsedVerseMarkup(pane, translationId, verse) {
@@ -502,12 +528,13 @@ function paneDisplaysSblGnt(pane) {
 }
 
 function ensureSblApparatus(pane) {
-  if (!paneDisplaysSblGnt(pane) || apparatusReady || apparatusLoading) return;
-  apparatusLoading = true;
-  loadSblApparatus()
-    .then(() => { apparatusReady = true; })
+  const book = pane.reference.book;
+  if (!paneDisplaysSblGnt(pane) || apparatusReady.has(book) || apparatusLoading.has(book)) return;
+  apparatusLoading.add(book);
+  loadSblApparatus(book)
+    .then(() => { apparatusReady.add(book); })
     .catch(() => { showToast("The SBLGNT apparatus is unavailable right now."); })
-    .finally(() => { apparatusLoading = false; render(); });
+    .finally(() => { apparatusLoading.delete(book); render(); });
 }
 
 function normalVersesMarkup(pane, paneIndex, verses, translation, translationId) {
@@ -709,7 +736,10 @@ function variantsMarkup() {
     const editions = reading.witnesses.length ? reading.witnesses.join(" · ") : "Edition support not listed";
     return '<li class="variant-reading' + (current ? " current" : "") + '"><div><span class="variant-reading-label">' + (current ? "SBLGNT reading" : "Alternate reading") + '</span><strong class="lang-greek">' + escapeHtml(reading.text) + '</strong></div><span class="variant-witnesses">' + escapeHtml(editions) + "</span></li>";
   }).join("");
-  return '<div class="variants-panel"><div class="variants-reference">' + escapeHtml(unit.reference) + '</div><span class="variants-kicker">SBLGNT apparatus</span><h2 class="lang-greek">' + escapeHtml(unit.lemma) + '</h2><p class="variants-intro">Readings compared by the SBL Greek New Testament apparatus.</p><ol class="variants-readings">' + readings + '</ol><footer class="variants-source">SBLGNT apparatus · edition-level comparison</footer></div>';
+  const rangeLabel = unit.range ? unit.range.start.book + " " + unit.range.start.chapter + ":" + unit.range.start.verse + "–" + unit.range.end.chapter + ":" + unit.range.end.verse : "";
+  const title = unit.range ? rangeLabel : unit.lemma;
+  const intro = unit.range ? "The SBLGNT marks this extended passage as doubtful; its apparatus records the relevant edition-level evidence." : "Readings compared by the SBL Greek New Testament apparatus.";
+  return '<div class="variants-panel"><div class="variants-reference">' + escapeHtml(unit.reference) + '</div><span class="variants-kicker">SBLGNT apparatus</span><h2 class="' + (unit.range ? "variants-range-title" : "lang-greek") + '">' + escapeHtml(title) + '</h2><p class="variants-intro">' + escapeHtml(intro) + '</p><ol class="variants-readings">' + readings + '</ol><footer class="variants-source">SBLGNT apparatus · edition-level comparison</footer></div>';
 }
 
 function openVariantStudy(target) {

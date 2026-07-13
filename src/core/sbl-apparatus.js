@@ -1,97 +1,132 @@
-const APPARATUS_URL = "https://raw.githubusercontent.com/jjmccollum/sblgnt-tei/main/xml/sblgnt_tei.xml";
+const APPARATUS_BASE_URL = "https://raw.githubusercontent.com/Faithlife/SBLGNT/master/data/sblgntapp/xml/";
 
-const NT_BOOKS = [
-  "Matthew", "Mark", "Luke", "John", "Acts", "Romans", "1 Corinthians", "2 Corinthians",
-  "Galatians", "Ephesians", "Philippians", "Colossians", "1 Thessalonians", "2 Thessalonians",
-  "1 Timothy", "2 Timothy", "Titus", "Philemon", "Hebrews", "James", "1 Peter", "2 Peter",
-  "1 John", "2 John", "3 John", "Jude", "Revelation"
-];
+const APPARATUS_FILES = {
+  "Matthew": "Matt", "Mark": "Mark", "Luke": "Luke", "John": "John", "Acts": "Acts",
+  "Romans": "Rom", "1 Corinthians": "1Cor", "2 Corinthians": "2Cor", "Galatians": "Gal",
+  "Ephesians": "Eph", "Philippians": "Phil", "Colossians": "Col", "1 Thessalonians": "1Thess",
+  "2 Thessalonians": "2Thess", "1 Timothy": "1Tim", "2 Timothy": "2Tim", "Titus": "Titus",
+  "Philemon": "Phlm", "Hebrews": "Heb", "James": "Jas", "1 Peter": "1Pet", "2 Peter": "2Pet",
+  "1 John": "1John", "2 John": "2John", "3 John": "3John", "Jude": "Jude", "Revelation": "Rev"
+};
 
-let apparatusIndex = null;
-let apparatusLoad = null;
+const WITNESS = /^(?:\[\[)?(?:WH|Treg|NIV|RP|NA27|NA28|ECM|Greeven|Holmes|Tregmarg|WHmarg)(?:\]\])?:?$/;
+const bookIndexes = new Map();
+const bookLoads = new Map();
+const unitsById = new Map();
 
-function elementText(element) {
-  return (element?.textContent || "").replace(/\s+/g, " ").trim();
+function plainText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
 }
 
-function referenceFromMilestone(id) {
-  const match = String(id || "").match(/^B(\d+)K(\d+)V(\d+)$/);
+function referenceParts(reference) {
+  const match = String(reference || "").match(/^(.+) (\d+):(\d+)$/);
+  return match ? { book: match[1], chapter: Number(match[2]), verse: Number(match[3]) } : null;
+}
+
+function parseReading(value) {
+  const terms = plainText(value).split(" ").filter(Boolean);
+  const witnesses = [];
+  while (terms.length && WITNESS.test(terms[terms.length - 1])) {
+    witnesses.unshift(terms.pop().replace(/[\[\]:]/g, ""));
+  }
+  return { text: terms.join(" ").trim(), witnesses };
+}
+
+function rangeFromNote(book, note) {
+  const match = note.match(/\+\s+(\d+):(\d+)[–-](\d+):(\d+)/);
   if (!match) return null;
-  const book = NT_BOOKS[Number(match[1]) - 1];
-  if (!book) return null;
-  return book + " " + Number(match[2]) + ":" + Number(match[3]);
+  return {
+    start: { book, chapter: Number(match[1]), verse: Number(match[2]) },
+    end: { book, chapter: Number(match[3]), verse: Number(match[4]) }
+  };
 }
 
-function witnesses(value) {
-  return String(value || "")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((item) => item.replace(/^#/, ""));
+function isWithinRange(reference, range) {
+  const current = referenceParts(reference);
+  if (!current || !range || current.book !== range.start.book) return false;
+  const value = current.chapter * 1000 + current.verse;
+  const start = range.start.chapter * 1000 + range.start.verse;
+  const end = range.end.chapter * 1000 + range.end.verse;
+  return value >= start && value <= end;
 }
 
-function buildIndex(xml) {
+function parseNote(reference, noteText, sequence) {
+  return plainText(noteText).split("•").map((entry) => {
+    const parts = entry.split("]");
+    if (parts.length < 2) return null;
+    const left = plainText(parts.shift()).replace(/^\d+(?::\d+)?\s+/, "");
+    const current = parseReading(left);
+    if (!current.text) return null;
+    const alternatives = parts.join("]").split(";").map(parseReading).filter((reading) => reading.text);
+    if (!alternatives.length) return null;
+    return {
+      id: "sbl-" + reference.replace(/\s|:|[^\w]/g, "-") + "-" + sequence(),
+      reference,
+      lemma: current.text,
+      readings: [current, ...alternatives]
+    };
+  }).filter(Boolean);
+}
+
+function buildBookIndex(book, xml) {
   const documentXml = new DOMParser().parseFromString(xml, "application/xml");
   if (documentXml.querySelector("parsererror")) throw new Error("The SBLGNT apparatus could not be read.");
-
   const byReference = new Map();
-  const byId = new Map();
+  const rangeUnits = [];
   let reference = null;
   let sequence = 0;
-  const stream = documentXml.querySelectorAll("milestone[unit='verse'], app[loc]");
+  const nextSequence = () => ++sequence;
 
-  stream.forEach((node) => {
-    if (node.localName === "milestone") {
-      reference = referenceFromMilestone(node.getAttribute("xml:id"));
+  documentXml.querySelectorAll("verse, note").forEach((node) => {
+    if (node.localName === "verse") {
+      reference = plainText(node.textContent);
       return;
     }
     if (!reference) return;
-    const lemma = elementText(Array.from(node.children).find((child) => child.localName === "lem"));
-    const readings = Array.from(node.children)
-      .filter((child) => child.localName === "rdg")
-      .map((reading) => ({
-        text: elementText(reading),
-        witnesses: witnesses(reading.getAttribute("wit"))
-      }))
-      .filter((reading) => reading.text);
-    if (!lemma || readings.length < 2) return;
-    const unit = {
-      id: "sbl-" + (++sequence),
-      reference,
-      lemma,
-      readings
-    };
-    if (!byReference.has(reference)) byReference.set(reference, []);
-    byReference.get(reference).push(unit);
-    byId.set(unit.id, unit);
+    parseNote(reference, node.textContent, nextSequence).forEach((unit) => {
+      if (!byReference.has(reference)) byReference.set(reference, []);
+      byReference.get(reference).push(unit);
+      unitsById.set(unit.id, unit);
+      const range = rangeFromNote(referenceParts(reference)?.book || book, unit.readings.map((reading) => reading.text).join(" "));
+      if (range) {
+        unit.range = range;
+        rangeUnits.push(unit);
+      }
+    });
   });
-  return { byReference, byId };
+  return { byReference, rangeUnits };
 }
 
-export function loadSblApparatus() {
-  if (apparatusIndex) return Promise.resolve(apparatusIndex);
-  if (!apparatusLoad) {
-    apparatusLoad = fetch(APPARATUS_URL)
+export function loadSblApparatus(book) {
+  if (!APPARATUS_FILES[book]) return Promise.resolve(null);
+  if (bookIndexes.has(book)) return Promise.resolve(bookIndexes.get(book));
+  if (!bookLoads.has(book)) {
+    const load = fetch(APPARATUS_BASE_URL + APPARATUS_FILES[book] + ".xml")
       .then((response) => {
         if (!response.ok) throw new Error("The SBLGNT apparatus is unavailable.");
         return response.text();
       })
       .then((xml) => {
-        apparatusIndex = buildIndex(xml);
-        return apparatusIndex;
+        const index = buildBookIndex(book, xml);
+        bookIndexes.set(book, index);
+        return index;
       })
       .catch((error) => {
-        apparatusLoad = null;
+        bookLoads.delete(book);
         throw error;
       });
+    bookLoads.set(book, load);
   }
-  return apparatusLoad;
+  return bookLoads.get(book);
 }
 
 export function getSblApparatusUnits(reference) {
-  return apparatusIndex?.byReference.get(reference) || [];
+  const parts = referenceParts(reference);
+  const index = parts && bookIndexes.get(parts.book);
+  if (!index) return [];
+  return [...(index.byReference.get(reference) || []), ...index.rangeUnits.filter((unit) => isWithinRange(reference, unit.range))];
 }
 
 export function getSblApparatusUnit(id) {
-  return apparatusIndex?.byId.get(id) || null;
+  return unitsById.get(id) || null;
 }
