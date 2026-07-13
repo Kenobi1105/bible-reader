@@ -1,5 +1,5 @@
 import { BOOKS, chapterCount, displayReference, isOldTestament, moveChapter, parseReference } from "../core/references.js";
-import { TRANSLATIONS, getChapter } from "../core/bible-sources.js";
+import { TRANSLATIONS, getChapter } from "../core/bible-sources.js?v=2";
 import { downloadFile, loadCachedChapter, loadState, saveCachedChapter, saveState } from "../core/storage.js?v=2";
 import { isMorphologyTranslation, loadMorphologyBook, morphologySourceLabel } from "../core/morphology.js";
 
@@ -25,6 +25,7 @@ const defaultState = {
   paper: "white",
   dark: false,
   fontSize: 18,
+  fontSizes: { latin: 18, chinese: 18, hebrew: 18, greek: 18 },
   highlights: {},
   bookmarks: [],
   notes: {},
@@ -63,6 +64,13 @@ state.twoPanelRatio = Math.min(.72, Math.max(.28, Number(state.twoPanelRatio) ||
 const FONT_SIZES = [12, 14, 16, 18, 20, 22, 24];
 const MAX_TABS_PER_PANEL = 3;
 state.fontSize = FONT_SIZES.includes(Number(state.fontSize)) ? Number(state.fontSize) : 18;
+const FONT_SCRIPTS = ["latin", "chinese", "hebrew", "greek"];
+const FONT_SCRIPT_LABELS = { latin: "English", chinese: "Chinese", hebrew: "Hebrew", greek: "Greek" };
+state.fontSizes = FONT_SCRIPTS.reduce((sizes, script) => {
+  const savedSize = Number(state.fontSizes?.[script]);
+  sizes[script] = FONT_SIZES.includes(savedSize) ? savedSize : state.fontSize;
+  return sizes;
+}, {});
 
 state.selectedVerse = null;
 state.paneSync = Boolean(state.paneSync);
@@ -194,6 +202,13 @@ function updateOfflineVersion(pane) {
   if (!navigator.onLine) pane.translation = offlineTranslation(pane.reference);
 }
 
+function adaptOriginalLanguageVersion(pane, reference) {
+  if (!["WLC", "LXX", "SBLGNT"].includes(pane.translation)) return;
+  if (!isTranslationApplicable(pane.translation, reference)) {
+    pane.translation = isOldTestament(reference.book) ? "WLC" : "SBLGNT";
+  }
+}
+
 function persist() {
   saveState({ ...state, selectedVerse: null });
 }
@@ -240,7 +255,8 @@ function revealArrivalIfReady(pane, key) {
 
 function setRootTheme() {
   document.body.classList.toggle("dark", state.dark);
-  document.documentElement.style.setProperty("--font-size", state.fontSize + "pt");
+  FONT_SCRIPTS.forEach((script) => document.documentElement.style.setProperty("--font-size-" + script, state.fontSizes[script] + "pt"));
+  document.documentElement.style.setProperty("--font-size", state.fontSizes.latin + "pt");
 }
 
 function showToast(message) {
@@ -468,7 +484,7 @@ function comparisonMarkup(pane, paneIndex) {
     const isCuv = id === "CUVS" || id === "CUVT";
     const cuvPicker = '<span class="cuv-card-picker"><button data-action="cycle-compare-cuv" data-direction="-1" data-pane-index="' + paneIndex + '" title="Show CUV Simplified" aria-label="Show CUV Simplified">' + icon("chevron-left") + '</button><span class="cuv-dot ' + (id === "CUVS" ? "active" : "") + '"></span><span class="cuv-dot ' + (id === "CUVT" ? "active" : "") + '"></span><button data-action="cycle-compare-cuv" data-direction="1" data-pane-index="' + paneIndex + '" title="Show CUV Traditional" aria-label="Show CUV Traditional">' + icon("chevron-right") + "</button></span>";
     const label = escapeHtml(translation.label) + (isCuv ? cuvPicker : "");
-    return '<section class="comparison-version' + selected + '" data-verse="' + escapeHtml(verseRef) + '" data-pane="' + paneIndex + '" dir="' + translation.direction + '"><div class="comparison-label">' + label + "</div>" +
+    return '<section class="comparison-version lang-' + (translation.script || "latin") + selected + '" data-verse="' + escapeHtml(verseRef) + '" data-pane="' + paneIndex + '" dir="' + translation.direction + '"><div class="comparison-label">' + label + "</div>" +
       (verse ? '<div class="comparison-text"><sup class="verse-number">' + verse.number + "</sup>" + parsedVerseMarkup(pane, id, verse) + "</div>" : '<div class="comparison-loading">Loading ' + escapeHtml(translation.label) + "...</div>") +
     "</section>";
   }).join("") + "</div>";
@@ -583,12 +599,15 @@ function renderStudyPanel(drawer = false) {
 
 function renderSettings() {
   const paper = state.paper;
-  const fontPips = FONT_SIZES.map((size) =>
-    '<button class="font-size-pip' + (state.fontSize === size ? " active" : "") + '" data-font-size="' + size + '" aria-label="Set text size to ' + size + ' pt" aria-pressed="' + (state.fontSize === size) + '" title="' + size + ' pt"><span></span></button>'
-  ).join("");
+  const fontRows = FONT_SCRIPTS.map((script) => {
+    const size = state.fontSizes[script];
+    const pips = FONT_SIZES.map((value) =>
+      '<button class="font-size-pip' + (size === value ? " active" : "") + '" data-font-size="' + value + '" data-font-script="' + script + '" aria-label="Set ' + FONT_SCRIPT_LABELS[script] + ' text size to ' + value + ' pt" aria-pressed="' + (size === value) + '" title="' + value + ' pt"><span></span></button>'
+    ).join("");
+    return '<div class="setting-row font-size-row"><label><span>' + FONT_SCRIPT_LABELS[script] + '</span><span>' + size + ' pt</span></label><div class="font-size-pips" role="group" aria-label="' + FONT_SCRIPT_LABELS[script] + ' text size">' + pips + "</div></div>";
+  }).join("");
   return '<div class="settings-menu" id="settings-menu">' +
-    '<div class="setting-row"><label><span>Text size</span><span>' + state.fontSize + " pt</span></label>" +
-      '<div class="font-size-pips" role="group" aria-label="Text size">' + fontPips + "</div></div>" +
+    '<div class="settings-section-label">Text sizes</div>' + fontRows +
     '<div class="setting-row"><label><span>Reader canvas</span></label><div class="theme-options">' +
       '<button class="theme-option ' + (paper === "white" ? "active" : "") + '" data-paper="white">White</button>' +
       '<button class="theme-option parchment ' + (paper === "parchment" ? "active" : "") + '" data-paper="parchment">Parchment</button>' +
@@ -855,6 +874,7 @@ function syncPartnerPane(sourceIndex, next) {
     targetPane.label = displayReference(next);
     targetPane.scope = targetPane.view === "compare" ? "verse" : sourcePane.scope;
     targetPane.fallback = null;
+    adaptOriginalLanguageVersion(targetPane, next);
     updateOfflineVersion(targetPane);
     queueArrival(targetIndex, next);
   });
@@ -867,6 +887,7 @@ function changePaneReference(paneIndex, next) {
   pane.label = displayReference(next);
   pane.scope = "chapter";
   if (pane.view === "compare") pane.view = "paragraph";
+  adaptOriginalLanguageVersion(pane, next);
   updateOfflineVersion(pane);
   state.activePane = paneIndex;
   state.mobilePane = paneIndex;
@@ -1193,7 +1214,9 @@ app.addEventListener("click", async (event) => {
   if (paper) { state.paper = paper.dataset.paper; persist(); render(); openSettings(event.target); return; }
   const fontSizePip = event.target.closest("[data-font-size]");
   if (fontSizePip) {
-    state.fontSize = Number(fontSizePip.dataset.fontSize);
+    const script = fontSizePip.dataset.fontScript || "latin";
+    state.fontSizes[script] = Number(fontSizePip.dataset.fontSize);
+    state.fontSize = state.fontSizes.latin;
     persist(); render(); openSettings(document.querySelector('[data-action="settings"]'));
     return;
   }
@@ -1319,7 +1342,7 @@ app.addEventListener("change", (event) => {
     persist(); render(); loadVisiblePanes(); return;
   }
   if (event.target.dataset.setting === "font-size") {
-    state.fontSize = Number(event.target.value); persist(); render(); return;
+    state.fontSizes.latin = Number(event.target.value); state.fontSize = state.fontSizes.latin; persist(); render(); return;
   }
 });
 
