@@ -629,7 +629,10 @@ body.dark .reveal-title { border-color: var(--border); }
 .parse-content dl > div { display: grid; gap: 4px; padding: 11px 12px; border: 1px solid var(--border); border-radius: 7px; background: rgba(255,255,255,.38); }
 .parse-content dt { color: var(--muted); font-family: "DM Sans", sans-serif; font-size: 10px; font-weight: 700; text-transform: uppercase; }
 .parse-content dd { margin: 0; font-family: Newsreader, Georgia, serif; font-size: 17px; line-height: 1.38; }
-.parse-code { font-family: ui-monospace, Consolas, monospace !important; font-size: 13px !important; }
+.parse-content dl > .parse-breakdown dd { font-family: "Noto Sans Hebrew", "Times New Roman", serif; font-size: 21px; }
+.parse-content dl > .parse-gloss dd { direction: ltr; text-align: left; }
+.parse-content dl > .parse-code { opacity: .7; }
+.parse-content dl > .parse-code dd { font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
 .parse-source { margin: 19px 0 0; color: var(--muted); font-size: 11px; }
 .parse-empty { padding: 28px 20px; color: var(--muted); font-size: 13px; }
 .desk.study-drawer-open .study-panel { position: fixed; z-index: 35; top: 70px; right: 0; width: min(390px, calc(100vw - 24px)); height: calc(100vh - 70px); border: 1px solid var(--border); border-right: 0; border-radius: 9px 0 0 9px; box-shadow: -14px 0 34px rgba(44,29,37,.18); }

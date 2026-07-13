@@ -514,13 +514,37 @@ function renderPane(pane, paneIndex) {
   "</article>";
 }
 
+function parseDetailRow(label, value, className = "") {
+  if (!value) return "";
+  return '<div class="' + className + '"><dt>' + escapeHtml(label) + '</dt><dd>' + escapeHtml(value) + "</dd></div>";
+}
+
+function parseDetailsMarkup(data) {
+  const word = data.word;
+  const lexical = word.lexical || {};
+  const rows = [];
+  if (data.translation === "WLC") {
+    rows.push(parseDetailRow("Word breakdown", lexical.breakdown, "parse-breakdown"));
+    rows.push(parseDetailRow("Lemma", lexical.lemma || word.lemma));
+    rows.push(parseDetailRow("Root", lexical.root));
+  } else {
+    rows.push(parseDetailRow("Lemma", lexical.lemma || word.lemma));
+  }
+  rows.push(parseDetailRow("Gloss", lexical.gloss, "parse-gloss"));
+  rows.push(parseDetailRow("Parsing", word.description));
+  rows.push(parseDetailRow("Lexicon ID", lexical.id));
+  rows.push(parseDetailRow("Source code", word.morphology, "parse-code"));
+  return rows.join("");
+}
+
 function renderParsePane(canvas, paneIndex) {
   const data = canvas.parseData;
   const translation = TRANSLATIONS[data?.translation] || {};
   const direction = translation.direction || "ltr";
   const classes = "parse-pane paper-" + state.paper + (state.mobilePane === paneIndex ? " mobile-active" : "");
   if (!data) return '<article class="' + classes + '"><div class="parse-pane-header"><span>Parsing</span><button class="format-button" data-action="close-parse-panel" data-pane-index="' + paneIndex + '" title="Close parsing panel">' + icon("x") + '</button></div><div class="parse-empty">Select a parsed Hebrew or Greek word.</div></article>';
-  return '<article class="' + classes + '"><div class="parse-pane-header"><div><span class="parse-kicker">' + escapeHtml(data.translation) + '</span><strong>Word parsing</strong></div><button class="format-button" data-action="close-parse-panel" data-pane-index="' + paneIndex + '" title="Restore reader panel">' + icon("x") + '</button></div><div class="parse-content" dir="' + direction + '"><div class="parse-reference">' + escapeHtml(data.reference) + '</div><div class="parse-word">' + escapeHtml(data.word.surface) + '</div><dl><div><dt>Lemma</dt><dd>' + escapeHtml(data.word.lemma || "Not listed") + '</dd></div><div><dt>Parsing</dt><dd>' + escapeHtml(data.word.description || "Not listed") + '</dd></div><div><dt>Code</dt><dd class="parse-code">' + escapeHtml(data.word.morphology || "Not listed") + '</dd></div></dl><p class="parse-source">' + escapeHtml(morphologySourceLabel(data.translation)) + '</p></div></article>';
+  const lexicalCredit = data.word.lexical ? " Lexical glosses: Open Scriptures Strong's Dictionaries." : "";
+  return '<article class="' + classes + '"><div class="parse-pane-header"><div><span class="parse-kicker">' + escapeHtml(data.translation) + '</span><strong>Word parsing</strong></div><button class="format-button" data-action="close-parse-panel" data-pane-index="' + paneIndex + '" title="Restore reader panel">' + icon("x") + '</button></div><div class="parse-content" dir="' + direction + '"><div class="parse-reference">' + escapeHtml(data.reference) + '</div><div class="parse-word">' + escapeHtml(data.word.surface) + '</div><dl>' + parseDetailsMarkup(data) + '</dl><p class="parse-source">' + escapeHtml(morphologySourceLabel(data.translation) + lexicalCredit) + '</p></div></article>';
 }
 
 function htmlToMarkdown(html) {

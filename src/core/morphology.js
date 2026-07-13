@@ -1,6 +1,17 @@
 import { loadCachedChapter, saveCachedChapter } from "./storage.js";
 
-const CACHE_PREFIX = "morphology-v1|";
+const CACHE_PREFIX = "morphology-v2|";
+const LEXICON_CACHE_PREFIX = "strongs-lexicon-v1|";
+const STRONGS_SOURCES = {
+  WLC: "https://raw.githubusercontent.com/openscriptures/strongs/refs/heads/master/hebrew/strongs-hebrew-dictionary.js",
+  SBLGNT: "https://raw.githubusercontent.com/openscriptures/strongs/refs/heads/master/greek/strongs-greek-dictionary.js"
+};
+const HEBREW_PREFIXES = {
+  b: { form: "בְּ", gloss: "in" }, c: { form: "וְ", gloss: "and" }, d: { form: "הַ", gloss: "the" },
+  i: { form: "הֲ", gloss: "question" }, k: { form: "כְּ", gloss: "as" }, l: { form: "לְ", gloss: "to" },
+  m: { form: "מִן", gloss: "from" }
+};
+const lexiconLoads = new Map();
 const SBLGNT_BOOKS = {
   "Matthew": "61-Mt", "Mark": "62-Mk", "Luke": "63-Lk", "John": "64-Jn", "Acts": "65-Ac", "Romans": "66-Ro",
   "1 Corinthians": "67-1Co", "2 Corinthians": "68-2Co", "Galatians": "69-Ga", "Ephesians": "70-Eph", "Philippians": "71-Php",
@@ -31,6 +42,95 @@ const GENDERS = { M: "masculine", F: "feminine", N: "neuter" };
 const TENSES = { P: "present", I: "imperfect", F: "future", A: "aorist", R: "perfect", L: "pluperfect" };
 const VOICES = { A: "active", M: "middle", P: "passive", E: "middle or passive" };
 const MOODS = { I: "indicative", S: "subjunctive", O: "optative", M: "imperative", N: "infinitive", P: "participle" };
+
+function conciseGloss(entry) {
+  const gloss = (entry?.kjv_def || entry?.strongs_def || "")
+    .replace(/\[[^\]]+\]/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/^[-+;,.\s]+/, "")
+    .trim();
+  return gloss.length > 110 ? gloss.slice(0, 107).replace(/\s+\S*$/, "") + "..." : gloss;
+}
+
+function parseStrongsDictionary(source) {
+  const assignment = source.indexOf("Dictionary =");
+  const start = source.indexOf("{", assignment);
+  const end = source.lastIndexOf("};");
+  if (start < 0 || end < start) throw new Error("The lexical dictionary could not be read.");
+  return JSON.parse(source.slice(start, end + 1));
+}
+
+async function loadStrongsDictionary(id) {
+  if (lexiconLoads.has(id)) return lexiconLoads.get(id);
+  const load = (async () => {
+    const key = LEXICON_CACHE_PREFIX + id;
+    const cached = await loadCachedChapter(key);
+    if (cached?.entries) return cached.entries;
+    const response = await fetch(STRONGS_SOURCES[id]);
+    if (!response.ok) throw new Error("Could not download lexical data.");
+    const entries = parseStrongsDictionary(await response.text());
+    await saveCachedChapter(key, { entries });
+    return entries;
+  })();
+  lexiconLoads.set(id, load);
+  try { return await load; } catch (error) { lexiconLoads.delete(id); throw error; }
+}
+
+function strongsId(token, prefix) {
+  const match = String(token || "").match(/^(\d+)/);
+  return match ? prefix + Number(match[1]) : "";
+}
+
+function normalizeGreek(value) {
+  return String(value || "").normalize("NFD").replace(/\p{M}/gu, "").replace(/ς/g, "σ").toLowerCase();
+}
+
+function hebrewRoot(entryId, dictionary, seen = new Set()) {
+  const entry = dictionary[entryId];
+  if (!entry || seen.has(entryId)) return entry?.lemma || "";
+  seen.add(entryId);
+  if (/primitive root|primary root|unused root/i.test(entry.derivation || "")) return entry.lemma || "";
+  const parent = (entry.derivation || "").match(/H0*(\d+)/)?.[1];
+  return parent ? hebrewRoot("H" + Number(parent), dictionary, seen) : (entry.lemma || "");
+}
+
+function enrichHebrewWord(word, dictionary) {
+  const parts = String(word.lemma || "").split("/").filter(Boolean);
+  const lexicalId = [...parts].reverse().map((part) => strongsId(part, "H")).find(Boolean);
+  const lexicalEntry = dictionary[lexicalId];
+  if (!lexicalEntry) return;
+  const breakdown = parts.map((part) => {
+    const prefix = HEBREW_PREFIXES[part];
+    if (prefix) return prefix;
+    const entry = dictionary[strongsId(part, "H")];
+    return entry ? { form: entry.lemma, gloss: conciseGloss(entry) } : null;
+  }).filter(Boolean);
+  word.lexical = {
+    id: lexicalId,
+    lemma: lexicalEntry.lemma || word.surface,
+    root: hebrewRoot(lexicalId, dictionary),
+    gloss: conciseGloss(lexicalEntry),
+    breakdown: breakdown.map((part) => part.form).join(" + "),
+    breakdownGloss: breakdown.map((part) => part.gloss).filter(Boolean).join(" + ")
+  };
+}
+
+function enrichGreekWord(word, dictionary, index) {
+  const entry = index.get(normalizeGreek(word.lemma));
+  if (!entry) return;
+  word.lexical = { id: entry.id, lemma: entry.lemma || word.lemma, gloss: conciseGloss(entry) };
+}
+
+async function enrichLexicalData(id, result) {
+  const dictionary = await loadStrongsDictionary(id);
+  if (id === "WLC") {
+    Object.values(result.verses).flat().forEach((word) => enrichHebrewWord(word, dictionary));
+  } else {
+    const index = new Map(Object.entries(dictionary).map(([key, entry]) => [normalizeGreek(entry.lemma), { ...entry, id: key }]));
+    Object.values(result.verses).flat().forEach((word) => enrichGreekWord(word, dictionary, index));
+  }
+  result.lexiconVersion = 1;
+}
 
 function greekDescription(pos, code) {
   const parts = [GREEK_POS[pos] || "Greek word"];
@@ -128,14 +228,19 @@ export async function loadMorphologyBook(id, book) {
   if (!code || !isMorphologyTranslation(id)) throw new Error("Parsing is not available for this book.");
   const key = CACHE_PREFIX + id + "|" + book;
   const cached = await loadCachedChapter(key);
-  if (cached?.verses) return cached;
-  const url = id === "WLC"
-    ? "https://raw.githubusercontent.com/openscriptures/morphhb/master/wlc/" + code + ".xml"
-    : "https://raw.githubusercontent.com/morphgnt/sblgnt/master/" + code + "-morphgnt.txt";
-  const response = await fetch(url);
-  if (!response.ok) throw new Error("Could not download parsing data.");
-  const source = await response.text();
-  const result = { source: morphologySourceLabel(id), verses: id === "WLC" ? parseWlc(source) : parseSblgnt(source) };
+  let result = cached?.verses ? cached : null;
+  if (!result) {
+    const url = id === "WLC"
+      ? "https://raw.githubusercontent.com/openscriptures/morphhb/master/wlc/" + code + ".xml"
+      : "https://raw.githubusercontent.com/morphgnt/sblgnt/master/" + code + "-morphgnt.txt";
+    const response = await fetch(url);
+    if (!response.ok) throw new Error("Could not download parsing data.");
+    const source = await response.text();
+    result = { source: morphologySourceLabel(id), verses: id === "WLC" ? parseWlc(source) : parseSblgnt(source) };
+  }
+  if (result.lexiconVersion !== 1) {
+    try { await enrichLexicalData(id, result); } catch { /* Keep parsing available if lexical data is temporarily unavailable. */ }
+  }
   await saveCachedChapter(key, result);
   return result;
 }
