@@ -2,8 +2,8 @@ import { BOOKS, displayReference } from "./references.js";
 
 export const TRANSLATIONS = {
   NET: { label: "NET", name: "New English Translation", language: "English", kind: "net", direction: "ltr" },
-  CUVS: { label: "CUV Simplified", name: "Chinese Union Version", language: "中文（简体）", kind: "getbible", code: "cus", direction: "ltr", script: "chinese" },
-  CUVT: { label: "CUV Traditional", name: "Chinese Union Version", language: "中文（繁體）", kind: "getbible", code: "cut", direction: "ltr", script: "chinese" },
+  CUVS: { label: "CUV Simplified", name: "Chinese Union Version", language: "中文（简体）", kind: "getbible", code: "cus", direction: "ltr", script: "chinese", fontClass: "chinese-sc" },
+  CUVT: { label: "CUV Traditional", name: "Chinese Union Version", language: "中文（繁體）", kind: "getbible", code: "cut", direction: "ltr", script: "chinese", fontClass: "chinese-tc" },
   SBLGNT: { label: "SBLGNT", name: "SBL Greek New Testament", language: "Koine Greek", kind: "sblgnt", direction: "ltr", script: "greek" },
   WLC: { label: "WLC", name: "Westminster Leningrad Codex", language: "Biblical Hebrew", kind: "getbible", code: "codex", direction: "rtl", script: "hebrew" },
   LXX: { label: "LXX", name: "Septuagint", language: "Ancient Greek", kind: "getbible", code: "lxx", direction: "ltr", script: "greek" }

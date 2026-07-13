@@ -1,6 +1,6 @@
 import { loadCachedChapter, saveCachedChapter } from "./storage.js";
 
-const CACHE_PREFIX = "morphology-v2|";
+const CACHE_PREFIX = "morphology-v3|";
 const LEXICON_CACHE_PREFIX = "strongs-lexicon-v1|";
 const STRONGS_SOURCES = {
   WLC: "https://raw.githubusercontent.com/openscriptures/strongs/refs/heads/master/hebrew/strongs-hebrew-dictionary.js",
@@ -189,13 +189,21 @@ function parseSblgnt(source) {
     if (columns.length < 6 || !/^\d{6}$/.test(columns[0])) return;
     const reference = Number(columns[0].slice(2, 4)) + ":" + Number(columns[0].slice(4, 6));
     (verses[reference] ||= []).push({
-      surface: columns[3],
-      lemma: columns[5],
+      surface: cleanParsedSurface(columns[3]),
+      lemma: cleanParsedSurface(columns[5]),
       morphology: columns[2],
       description: greekDescription(columns[1], columns[2])
     });
   });
   return verses;
+}
+
+function cleanParsedSurface(value) {
+  return String(value || "")
+    .replace(/[()[\]{}⟦⟧⟨⟩‹›†‡*]/g, "")
+    .replace(/[\u2E00-\u2E7F]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function parseWlc(source) {

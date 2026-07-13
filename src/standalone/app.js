@@ -1,5 +1,5 @@
 import { BOOKS, chapterCount, displayReference, isOldTestament, moveChapter, parseReference } from "../core/references.js";
-import { TRANSLATIONS, getChapter } from "../core/bible-sources.js?v=2";
+import { TRANSLATIONS, getChapter } from "../core/bible-sources.js?v=3";
 import { downloadFile, loadCachedChapter, loadState, saveCachedChapter, saveState } from "../core/storage.js?v=2";
 import { isMorphologyTranslation, loadMorphologyBook, morphologySourceLabel } from "../core/morphology.js";
 
@@ -466,8 +466,8 @@ function interlinearMarkup(pane, paneIndex) {
     const original = originalByNumber.get(verse.number);
     const selected = isVerseSelected(verseRef) ? " selected" : "";
     return '<div class="interlinear-verse' + selected + '" data-verse="' + escapeHtml(verseRef) + '" data-pane="' + paneIndex + '">' +
-      '<div class="interlinear-line top-line lang-' + (topTranslation.script || "latin") + '" dir="' + topTranslation.direction + '"><span class="interlinear-label">' + topId + '</span><sup class="verse-number">' + verse.number + "</sup>" + escapeHtml(verse.text) + "</div>" +
-      '<div class="interlinear-line original-line lang-' + TRANSLATIONS[originalId].script + '" dir="' + TRANSLATIONS[originalId].direction + '"><span class="interlinear-label">' + originalId + "</span>" + (original ? '<sup class="verse-number">' + original.number + "</sup>" + parsedVerseMarkup(pane, originalId, original) : '<span class="interlinear-loading">Loading ' + originalId + "...</span>") + "</div>" +
+      '<div class="interlinear-line top-line lang-' + (topTranslation.fontClass || topTranslation.script || "latin") + '" dir="' + topTranslation.direction + '"><span class="interlinear-label">' + topId + '</span><sup class="verse-number">' + verse.number + "</sup>" + escapeHtml(verse.text) + "</div>" +
+      '<div class="interlinear-line original-line lang-' + (TRANSLATIONS[originalId].fontClass || TRANSLATIONS[originalId].script) + '" dir="' + TRANSLATIONS[originalId].direction + '"><span class="interlinear-label">' + originalId + "</span>" + (original ? '<sup class="verse-number">' + original.number + "</sup>" + parsedVerseMarkup(pane, originalId, original) : '<span class="interlinear-loading">Loading ' + originalId + "...</span>") + "</div>" +
     "</div>";
   }).join("") + "</div>";
 }
@@ -484,7 +484,7 @@ function comparisonMarkup(pane, paneIndex) {
     const isCuv = id === "CUVS" || id === "CUVT";
     const cuvPicker = '<span class="cuv-card-picker"><button data-action="cycle-compare-cuv" data-direction="-1" data-pane-index="' + paneIndex + '" title="Show CUV Simplified" aria-label="Show CUV Simplified">' + icon("chevron-left") + '</button><span class="cuv-dot ' + (id === "CUVS" ? "active" : "") + '"></span><span class="cuv-dot ' + (id === "CUVT" ? "active" : "") + '"></span><button data-action="cycle-compare-cuv" data-direction="1" data-pane-index="' + paneIndex + '" title="Show CUV Traditional" aria-label="Show CUV Traditional">' + icon("chevron-right") + "</button></span>";
     const label = escapeHtml(translation.label) + (isCuv ? cuvPicker : "");
-    return '<section class="comparison-version lang-' + (translation.script || "latin") + selected + '" data-verse="' + escapeHtml(verseRef) + '" data-pane="' + paneIndex + '" dir="' + translation.direction + '"><div class="comparison-label">' + label + "</div>" +
+    return '<section class="comparison-version lang-' + (translation.fontClass || translation.script || "latin") + selected + '" data-verse="' + escapeHtml(verseRef) + '" data-pane="' + paneIndex + '" dir="' + translation.direction + '"><div class="comparison-label">' + label + "</div>" +
       (verse ? '<div class="comparison-text"><sup class="verse-number">' + verse.number + "</sup>" + parsedVerseMarkup(pane, id, verse) + "</div>" : '<div class="comparison-loading">Loading ' + escapeHtml(translation.label) + "...</div>") +
     "</section>";
   }).join("") + "</div>";
@@ -497,7 +497,7 @@ function renderPane(pane, paneIndex) {
   const result = loadedResult || pane.fallback?.result;
   const displayTranslation = showingFallback ? TRANSLATIONS[pane.fallback.translation] : translation;
   const verses = scopedVerses(pane, result?.verses || []);
-  const classes = "reader-pane paper-" + state.paper + " view-" + pane.view + (displayTranslation.script ? " lang-" + displayTranslation.script : "") + (paneIndex === state.activePane ? " active-pane" : "") + (state.mobilePane === paneIndex ? " mobile-active" : "");
+  const classes = "reader-pane paper-" + state.paper + " view-" + pane.view + (displayTranslation.script ? " lang-" + (displayTranslation.fontClass || displayTranslation.script) : "") + (paneIndex === state.activePane ? " active-pane" : "") + (state.mobilePane === paneIndex ? " mobile-active" : "");
   const offlineStatus = pane.loading ? '<span class="offline-status loading-status">' + icon("loader-circle") + "Loading " + translation.label + "</span>" : !navigator.onLine ? '<span class="offline-status">' + icon("wifi-off") + "Offline · " + translation.label + "</span>" : "";
   const displayTranslationId = showingFallback ? pane.fallback.translation : pane.translation;
   const versesHtml = pane.view === "interlinear" ? interlinearMarkup(pane, paneIndex) : pane.view === "compare" ? comparisonMarkup(pane, paneIndex) : verses.length ? normalVersesMarkup(pane, paneIndex, verses, displayTranslation, displayTranslationId) : emptyReader(displayTranslation, result);
@@ -1070,7 +1070,7 @@ function exportPdf() {
     showToast("Allow pop-ups to export this note as PDF.");
     return;
   }
-  printWindow.document.write('<!doctype html><html><head><title>' + escapeHtml(selectedReference()) + '</title><style>body{font-family:Georgia,serif;max-width:760px;margin:48px auto;color:#242120;line-height:1.6}h1{font-family:Arial,sans-serif;font-size:22px}</style></head><body><h1>' + escapeHtml(selectedReference()) + '</h1>' + (note.html || markdownToHtml(note.markdown)) + "</body></html>");
+  printWindow.document.write('<!doctype html><html><head><title>' + escapeHtml(selectedReference()) + '</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..700&display=swap"><style>body{font-family:"Source Serif 4",Georgia,serif;max-width:760px;margin:48px auto;color:#242120;line-height:1.6}h1{font-family:"Source Serif 4",Georgia,serif;font-size:22px}</style></head><body><h1>' + escapeHtml(selectedReference()) + '</h1>' + (note.html || markdownToHtml(note.markdown)) + "</body></html>");
   printWindow.document.close();
   printWindow.focus();
   setTimeout(() => printWindow.print(), 250);
