@@ -1,6 +1,6 @@
 import { loadCachedChapter, saveCachedChapter } from "./storage.js";
 
-const CACHE_PREFIX = "morphology-v3|";
+const CACHE_PREFIX = "morphology-v4|";
 const LEXICON_CACHE_PREFIX = "strongs-lexicon-v1|";
 const STRONGS_SOURCES = {
   WLC: "https://raw.githubusercontent.com/openscriptures/strongs/refs/heads/master/hebrew/strongs-hebrew-dictionary.js",
@@ -116,7 +116,7 @@ function enrichHebrewWord(word, dictionary) {
 }
 
 function enrichGreekWord(word, dictionary, index) {
-  const entry = index.get(normalizeGreek(word.lemma));
+  const entry = index.get(normalizeGreek(cleanGreekForLookup(word.lemma)));
   if (!entry) return;
   word.lexical = { id: entry.id, lemma: entry.lemma || word.lemma, gloss: conciseGloss(entry) };
 }
@@ -189,8 +189,8 @@ function parseSblgnt(source) {
     if (columns.length < 6 || !/^\d{6}$/.test(columns[0])) return;
     const reference = Number(columns[0].slice(2, 4)) + ":" + Number(columns[0].slice(4, 6));
     (verses[reference] ||= []).push({
-      surface: cleanParsedSurface(columns[3]),
-      lemma: cleanParsedSurface(columns[5]),
+      surface: columns[3],
+      lemma: columns[5],
       morphology: columns[2],
       description: greekDescription(columns[1], columns[2])
     });
@@ -198,7 +198,7 @@ function parseSblgnt(source) {
   return verses;
 }
 
-function cleanParsedSurface(value) {
+function cleanGreekForLookup(value) {
   return String(value || "")
     .replace(/[()[\]{}⟦⟧⟨⟩‹›†‡*]/g, "")
     .replace(/[\u2E00-\u2E7F]/g, "")
