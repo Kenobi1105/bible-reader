@@ -61,6 +61,7 @@ state.layout = Math.min(3, Math.max(1, Number(state.layout) || 1));
 state.singlePanelWidth = Math.min(1300, Math.max(460, Number(state.singlePanelWidth) || 900));
 state.twoPanelRatio = Math.min(.72, Math.max(.28, Number(state.twoPanelRatio) || .5));
 const FONT_SIZES = [12, 14, 16, 18, 20, 22, 24];
+const MAX_TABS_PER_PANEL = 3;
 state.fontSize = FONT_SIZES.includes(Number(state.fontSize)) ? Number(state.fontSize) : 18;
 
 state.selectedVerse = null;
@@ -287,6 +288,7 @@ function readerSettingsMarkup(pane, paneIndex) {
 function renderCanvasTabs(paneIndex) {
   const canvas = canvasAt(paneIndex);
   const pane = paneAt(paneIndex);
+  const tabLimitReached = canvas.tabs.length >= MAX_TABS_PER_PANEL;
   const parseControl = displayedMorphologyIds(pane).length
     ? '<label class="parse-toggle canvas-parse-toggle" title="Open word parsing when you click Hebrew or Greek"><input type="checkbox" data-pane-parse="' + paneIndex + '"' + (pane.parseEnabled ? " checked" : "") + '><span>Parse</span></label>'
     : "";
@@ -294,7 +296,7 @@ function renderCanvasTabs(paneIndex) {
     '<button class="canvas-tab ' + (item.id === canvas.activeTab ? "active" : "") + '" data-canvas-tab="' + paneIndex + "|" + item.id + '">' +
       '<span>' + escapeHtml(item.label) + '</span><span class="tab-close" data-close-canvas-tab="' + paneIndex + "|" + item.id + '" title="Close tab">' + icon("x") + "</span>" +
     "</button>"
-  ).join("") + '<button class="canvas-tab-add" data-canvas-new="' + paneIndex + '" title="New passage tab">' + icon("plus") + '</button><span class="canvas-tab-spacer"></span>' + parseControl + (state.panelSettings === paneIndex ? readerSettingsMarkup(pane, paneIndex) : "") + "</div>";
+  ).join("") + '<button class="canvas-tab-add' + (tabLimitReached ? " disabled" : "") + '" data-canvas-new="' + paneIndex + '" title="' + (tabLimitReached ? "Maximum of three tabs per reader" : "New passage tab") + '"' + (tabLimitReached ? " disabled" : "") + '>' + icon("plus") + '</button><span class="canvas-tab-spacer"></span>' + parseControl + (state.panelSettings === paneIndex ? readerSettingsMarkup(pane, paneIndex) : "") + "</div>";
 }
 
 function renderReferenceBrowser() {
@@ -804,6 +806,10 @@ function openSettings(target) {
 
 function newCanvasTab(paneIndex = state.activePane) {
   const canvas = canvasAt(paneIndex);
+  if (canvas.tabs.length >= MAX_TABS_PER_PANEL) {
+    showToast("Each reader can have up to three passage tabs.");
+    return;
+  }
   const pane = JSON.parse(JSON.stringify(paneAt(paneIndex)));
   const id = "canvas-" + paneIndex + "-tab-" + Date.now();
   pane.id = id;

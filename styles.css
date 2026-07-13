@@ -130,16 +130,13 @@ button { color: inherit; }
 .swatch:hover, .swatch.active { border-color: var(--ink); transform: scale(1.08); }
 .popover-actions { display: flex; gap: 6px; padding-top: 10px; }
 
-.settings-menu { position: fixed; z-index: 20; display: none; width: 270px; padding: 15px; border: 1px solid var(--border); border-radius: 7px; background: #fffdf7; box-shadow: 0 16px 42px rgba(47,31,22,.2); }
+.settings-menu { position: fixed; z-index: 50; display: none; width: 270px; padding: 15px; border: 1px solid var(--border); border-radius: 7px; background: #fffdf7; box-shadow: 0 16px 42px rgba(47,31,22,.2); }
 .settings-menu.visible { display: grid; gap: 14px; }
 .setting-row { display: grid; gap: 7px; }
 .setting-row label { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; font-weight: 600; }
-.font-size-pips { display: flex; align-items: center; justify-content: space-between; gap: 0; min-height: 28px; padding: 0 3px; }
-.font-size-pip { position: relative; display: grid; width: 24px; height: 28px; padding: 0; place-items: center; border: 0; background: transparent; cursor: pointer; }
-.font-size-pip::before, .font-size-pip::after { position: absolute; top: 50%; width: 50%; height: 1px; background: #d8cdbd; content: ""; transform: translateY(-50%); }
-.font-size-pip::before { right: 50%; }
-.font-size-pip::after { left: 50%; }
-.font-size-pip:first-child::before, .font-size-pip:last-child::after { display: none; }
+.font-size-pips { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 0; min-height: 28px; padding: 0 3px; }
+.font-size-pips::before { position: absolute; top: 50%; right: 12px; left: 12px; height: 1px; background: #d8cdbd; content: ""; transform: translateY(-50%); }
+.font-size-pip { position: relative; z-index: 1; display: grid; width: 24px; height: 28px; padding: 0; place-items: center; border: 0; background: transparent; cursor: pointer; }
 .font-size-pip span { position: relative; z-index: 1; width: 9px; height: 9px; border: 2px solid #b8aaa0; border-radius: 50%; background: #fffdf7; transition: background .15s ease, border-color .15s ease, transform .15s ease; }
 .font-size-pip:hover span { border-color: #8a5a44; transform: scale(1.12); }
 .font-size-pip.active span { border-color: #f0d08f; background: #f0d08f; box-shadow: 0 0 0 3px rgba(240,208,143,.24); }
@@ -663,4 +660,49 @@ body.resizing-panels, body.resizing-panels * { cursor: col-resize !important; us
   .pane-grid.single { display: block; width: 100%; }
   .pane-grid.single .pane-resizer, .pane-grid.split .pane-resizer { display: none; }
   .pane-grid.split { display: block; }
+}
+
+/* Compact passage picker, layered dark reader, and quiet scrollbars. */
+.reference-browser .staged-books > .book-grid { grid-template-columns: repeat(auto-fill, 38px); justify-content: start; gap: 4px; }
+.reference-browser .number-grid { grid-template-columns: repeat(auto-fill, 34px); justify-content: start; gap: 4px; }
+.reference-browser .browse-chip { width: 38px; min-height: 38px; font-size: 10px; }
+.reference-browser .number-chip { width: 34px; min-height: 34px; font-size: 10px; }
+.reference-browser .chapter-grid { grid-template-columns: repeat(auto-fill, 36px); justify-content: start; gap: 4px; padding: 8px; }
+.reference-browser .chapter-grid .number-chip { width: 36px; min-height: 36px; }
+.canvas-tab-add:disabled { border-color: transparent; color: #b7adb0; cursor: not-allowed; opacity: .58; }
+.canvas-tab-add:disabled:hover { background: transparent; color: #b7adb0; }
+
+.reader-shell :is(.verse-list, .parse-content, .study-panel, .reference-browser, .verse-grid, .workspace-tabs) { scrollbar-width: thin; scrollbar-color: rgba(111, 92, 106, .45) transparent; }
+.reader-shell :is(.verse-list, .parse-content, .study-panel, .reference-browser, .verse-grid, .workspace-tabs)::-webkit-scrollbar { width: 8px; height: 8px; }
+.reader-shell :is(.verse-list, .parse-content, .study-panel, .reference-browser, .verse-grid, .workspace-tabs)::-webkit-scrollbar-track { background: transparent; }
+.reader-shell :is(.verse-list, .parse-content, .study-panel, .reference-browser, .verse-grid, .workspace-tabs)::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 99px; background: rgba(111, 92, 106, .42); background-clip: padding-box; }
+.reader-shell :is(.verse-list, .parse-content, .study-panel, .reference-browser, .verse-grid, .workspace-tabs)::-webkit-scrollbar-thumb:hover { background: rgba(73, 53, 72, .7); background-clip: padding-box; }
+
+body.dark { --app-bg: #151419; --surface: #201e25; --surface-muted: #2b2731; --paper: #201e25; --ink: #f4eee5; --muted: #c1b6ae; --border: #4a4350; --shadow: 0 15px 38px rgba(0,0,0,.34); }
+body.dark .workspace-header { border-color: #443e49; background: rgba(28,26,33,.96); }
+body.dark .reader-shell { background: #151419; }
+body.dark .reader-pane, body.dark .parse-pane { border-color: #504756; background: #201e25; box-shadow: 0 12px 30px rgba(0,0,0,.28); }
+body.dark .canvas-tabs { border-bottom-color: #443e49; background: #292630; }
+body.dark .canvas-tab { color: #c5bcb5; }
+body.dark .canvas-tab:hover { background: #35303b; color: #f5eee5; }
+body.dark .canvas-tab.active { border-color: #5d5262; background: #201e25; color: #f0d08f; box-shadow: none; }
+body.dark .passage-choice, body.dark .source-status { border-color: #443e49; background: #232129; }
+body.dark .passage-choice button, body.dark .chapter-arrow, body.dark .version-select { border-color: #514957; background: #2a2730; color: #f4eee5; }
+body.dark .comparison-version { border-color: #48414d; background: #25222a; }
+body.dark .comparison-version:hover { border-color: #756475; background: #2d2933; }
+body.dark .interlinear-line + .interlinear-line { border-color: #49424d; }
+body.dark .parse-content dl > div { border-color: #4b4450; background: #2a2730; }
+body.dark .study-panel, body.dark .study-drawer { background: #211f26; box-shadow: -14px 0 34px rgba(0,0,0,.34); }
+body.dark .note-editor, body.dark .markdown-editor, body.dark .toolbar, body.dark .bookmark-card, body.dark .settings-menu, body.dark .verse-popover { border-color: #4a4350; background: #292630; }
+body.dark .font-size-pips::before { background: #645b67; }
+body.dark .font-size-pip span { border-color: #958997; background: #292630; }
+body.dark .reader-shell :is(.verse-list, .parse-content, .study-panel, .reference-browser, .verse-grid, .workspace-tabs) { scrollbar-color: rgba(240,208,143,.55) transparent; }
+body.dark .reader-shell :is(.verse-list, .parse-content, .study-panel, .reference-browser, .verse-grid, .workspace-tabs)::-webkit-scrollbar-thumb { background: rgba(240,208,143,.48); background-clip: padding-box; }
+body.dark .reader-shell :is(.verse-list, .parse-content, .study-panel, .reference-browser, .verse-grid, .workspace-tabs)::-webkit-scrollbar-thumb:hover { background: rgba(240,208,143,.78); background-clip: padding-box; }
+
+@media (max-width: 760px) {
+  .reference-browser .staged-books > .book-grid { grid-template-columns: repeat(auto-fill, 34px); }
+  .reference-browser .browse-chip { width: 34px; min-height: 34px; }
+  .reference-browser .number-grid { grid-template-columns: repeat(auto-fill, 32px); }
+  .reference-browser .number-chip { width: 32px; min-height: 32px; }
 }
