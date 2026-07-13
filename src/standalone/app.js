@@ -2,6 +2,7 @@ import { BOOKS, chapterCount, displayReference, isOldTestament, moveChapter, par
 import { TRANSLATIONS, getChapter } from "../core/bible-sources.js?v=3";
 import { downloadFile, loadCachedChapter, loadState, saveCachedChapter, saveState } from "../core/storage.js?v=2";
 import { isMorphologyTranslation, loadMorphologyBook, morphologySourceLabel } from "../core/morphology.js";
+import { getSblApparatusUnit, getSblApparatusUnits, loadSblApparatus } from "../core/sbl-apparatus.js?v=1";
 
 const app = document.querySelector("#app");
 const defaultState = {
@@ -75,6 +76,7 @@ state.fontSizes = FONT_SCRIPTS.reduce((sizes, script) => {
 state.selectedVerse = null;
 state.paneSync = Boolean(state.paneSync);
 state.panelSettings = Number.isInteger(state.panelSettings) ? state.panelSettings : null;
+state.variantUnit = typeof state.variantUnit === "string" ? state.variantUnit : null;
 state.mobilePane = Number.isInteger(state.mobilePane) ? state.mobilePane : state.activePane;
 state.bookmarks = (state.bookmarks || []).map((bookmark, index) => ({
   ...bookmark,
@@ -98,6 +100,8 @@ let multiVerseSelection = [];
 let syncScrollLocked = false;
 let lastSyncedScrollReference = "";
 let resizeSession = null;
+let apparatusLoading = false;
+let apparatusReady = false;
 
 function icon(name) {
   return '<i data-lucide="' + name + '"></i>';
@@ -402,12 +406,62 @@ function displayedMorphologyIds(pane) {
   return [pane.translation].filter(isMorphologyTranslation);
 }
 
+function normalizeGreekForMatch(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLocaleLowerCase();
+}
+
+function greekTokens(value) {
+  return Array.from(String(value || "").matchAll(/[\p{L}\p{M}]+/gu)).map((match) => ({
+    start: match.index,
+    end: match.index + match[0].length,
+    value: normalizeGreekForMatch(match[0])
+  }));
+}
+
+function apparatusRanges(text, reference) {
+  const tokens = greekTokens(text);
+  let cursor = 0;
+  return getSblApparatusUnits(reference).map((unit) => {
+    const lemma = greekTokens(unit.lemma).map((token) => token.value);
+    if (!lemma.length) return null;
+    for (let index = cursor; index <= tokens.length - lemma.length; index += 1) {
+      if (lemma.every((value, offset) => tokens[index + offset].value === value)) {
+        cursor = index + lemma.length;
+        return { ...unit, start: tokens[index].start, end: tokens[index + lemma.length - 1].end };
+      }
+    }
+    return null;
+  }).filter(Boolean);
+}
+
+function apparatusTooltip(unit) {
+  const alternate = unit.readings.find((reading) => reading.text !== unit.lemma) || unit.readings[1];
+  const witnesses = alternate?.witnesses?.length ? " · " + alternate.witnesses.join(", ") : "";
+  return "SBLGNT apparatus: " + (alternate?.text || "variant reading") + witnesses;
+}
+
+function sblApparatusMarkup(text, reference) {
+  const ranges = apparatusRanges(text, reference);
+  if (!ranges.length) return escapeHtml(text);
+  let cursor = 0;
+  return ranges.map((unit) => {
+    const before = escapeHtml(text.slice(cursor, unit.start));
+    const marked = '<span class="apparatus-anchor" tabindex="0" role="button" data-apparatus-id="' + unit.id + '" data-apparatus-tooltip="' + escapeHtml(apparatusTooltip(unit)) + '" aria-label="Open textual variant for ' + escapeHtml(reference) + '">' + escapeHtml(text.slice(unit.start, unit.end)) + "</span>";
+    cursor = unit.end;
+    return before + marked;
+  }).join("") + escapeHtml(text.slice(cursor));
+}
+
 function parsedVerseMarkup(pane, translationId, verse) {
+  const reference = verseReference(pane, verse.number);
+  if (translationId === "SBLGNT" && !pane.parseEnabled) return sblApparatusMarkup(verse.text, reference);
   if (!pane.parseEnabled || !isMorphologyTranslation(translationId)) return escapeHtml(verse.text);
   const morphology = morphologyData[morphologyKey(translationId, pane.reference.book)];
   const words = morphology?.verses?.[pane.reference.chapter + ":" + verse.number];
   if (!words?.length) return escapeHtml(verse.text);
-  const reference = verseReference(pane, verse.number);
   return words.map((word, index) => {
     const title = "Lemma: " + (word.lemma || "Not listed") + "\nParsing: " + (word.description || "Not listed") + "\nCode: " + (word.morphology || "Not listed");
     return '<span class="morph-word" tabindex="0" title="' + escapeHtml(title) + '" data-morph-word="' + index + '" data-morph-translation="' + translationId + '" data-morph-reference="' + escapeHtml(reference) + '" data-morph-book="' + escapeHtml(pane.reference.book) + '">' + escapeHtml(word.surface) + "</span>";
@@ -441,6 +495,19 @@ function queueMorphology(id, book) {
 function ensurePaneMorphology(pane) {
   if (!pane.parseEnabled) return;
   displayedMorphologyIds(pane).forEach((id) => queueMorphology(id, pane.reference.book));
+}
+
+function paneDisplaysSblGnt(pane) {
+  return pane.translation === "SBLGNT" || pane.view === "interlinear" || pane.view === "compare";
+}
+
+function ensureSblApparatus(pane) {
+  if (!paneDisplaysSblGnt(pane) || apparatusReady || apparatusLoading) return;
+  apparatusLoading = true;
+  loadSblApparatus()
+    .then(() => { apparatusReady = true; })
+    .catch(() => { showToast("The SBLGNT apparatus is unavailable right now."); })
+    .finally(() => { apparatusLoading = false; render(); });
 }
 
 function normalVersesMarkup(pane, paneIndex, verses, translation, translationId) {
@@ -632,11 +699,41 @@ function bookmarksMarkup() {
   return '<div class="bookmark-panel"><div class="note-reference"><span>Saved passages</span><span>' + state.bookmarks.length + "</span></div>" + cards + "</div>";
 }
 
+function variantsMarkup() {
+  const unit = getSblApparatusUnit(state.variantUnit);
+  if (!unit) {
+    return '<div class="variants-panel variants-empty"><span class="variants-kicker">SBLGNT apparatus</span><h2>Textual variants</h2><p>Select a marked SBLGNT word in the reader to examine the edition-level readings here.</p></div>';
+  }
+  const readings = unit.readings.map((reading) => {
+    const current = reading.text === unit.lemma;
+    const editions = reading.witnesses.length ? reading.witnesses.join(" · ") : "Edition support not listed";
+    return '<li class="variant-reading' + (current ? " current" : "") + '"><div><span class="variant-reading-label">' + (current ? "SBLGNT reading" : "Alternate reading") + '</span><strong class="lang-greek">' + escapeHtml(reading.text) + '</strong></div><span class="variant-witnesses">' + escapeHtml(editions) + "</span></li>";
+  }).join("");
+  return '<div class="variants-panel"><div class="variants-reference">' + escapeHtml(unit.reference) + '</div><span class="variants-kicker">SBLGNT apparatus</span><h2 class="lang-greek">' + escapeHtml(unit.lemma) + '</h2><p class="variants-intro">Readings compared by the SBL Greek New Testament apparatus.</p><ol class="variants-readings">' + readings + '</ol><footer class="variants-source">SBLGNT apparatus · edition-level comparison</footer></div>';
+}
+
+function openVariantStudy(target) {
+  const unit = getSblApparatusUnit(target.dataset.apparatusId);
+  if (!unit) return;
+  const sourcePane = target.closest("[data-activate-pane]");
+  if (sourcePane) {
+    state.activePane = Number(sourcePane.dataset.activatePane);
+    state.mobilePane = state.activePane;
+    markPaneUsed(state.activePane);
+  }
+  state.variantUnit = unit.id;
+  state.studyTab = "variants";
+  state.studyOpen = true;
+  persist();
+  render();
+}
+
 function renderStudyPanel(drawer = false) {
   return '<aside class="study-panel' + (drawer ? " study-drawer" : "") + '">' + (drawer ? '<button class="study-drawer-close" data-action="toggle-study" title="Close study tools">' + icon("x") + "</button>" : "") + '<div class="study-tabs">' +
     '<button data-study-tab="notes" class="' + (state.studyTab === "notes" ? "active" : "") + '">Notes</button>' +
     '<button data-study-tab="bookmarks" class="' + (state.studyTab === "bookmarks" ? "active" : "") + '">Bookmarks</button>' +
-  "</div>" + (state.studyTab === "notes" ? noteMarkup() : bookmarksMarkup()) + "</aside>";
+    '<button data-study-tab="variants" class="' + (state.studyTab === "variants" ? "active" : "") + '">Variants</button>' +
+  "</div>" + (state.studyTab === "notes" ? noteMarkup() : state.studyTab === "bookmarks" ? bookmarksMarkup() : variantsMarkup()) + "</aside>";
 }
 
 function renderSettings() {
@@ -762,6 +859,7 @@ async function loadPane(pane) {
     revealArrivalIfReady(pane, key);
     loadSupplementalVersions(pane);
     ensurePaneMorphology(pane);
+    ensureSblApparatus(pane);
     return;
   }
   pane.loading = true;
@@ -774,6 +872,7 @@ async function loadPane(pane) {
   revealArrivalIfReady(pane, key);
   loadSupplementalVersions(pane);
   ensurePaneMorphology(pane);
+  ensureSblApparatus(pane);
 }
 
 function loadVisiblePanes() {
@@ -1110,10 +1209,12 @@ app.addEventListener("click", async (event) => {
   const insideVersePopover = event.target.closest("#verse-popover");
   const clickedVerse = event.target.closest("[data-verse]");
   const morphWord = event.target.closest("[data-morph-word]");
+  const apparatusAnchor = event.target.closest("[data-apparatus-id]");
   const formatControl = event.target.closest("[data-format]");
   const selectionCleared = !formatControl && !clickedVerse && !insideVersePopover && clearVerseSelection();
   if (state.navigatorOpen && !insidePicker && !pickerTrigger) state.navigatorOpen = false;
   if (formatControl) return;
+  if (apparatusAnchor) return openVariantStudy(apparatusAnchor);
   if (morphWord) {
     const sourcePane = morphWord.closest("[data-activate-pane]");
     if (sourcePane) {
@@ -1394,7 +1495,7 @@ app.addEventListener("input", (event) => {
 
 app.addEventListener("dblclick", (event) => {
   const verse = event.target.closest("[data-verse]");
-  if (!verse || event.target.closest("[data-action], [data-morph-word]")) return;
+  if (!verse || event.target.closest("[data-action], [data-morph-word], [data-apparatus-id]")) return;
   const paneIndex = Number(verse.dataset.pane);
   if (paneAt(paneIndex).view === "compare") return;
   state.activePane = paneIndex;
@@ -1407,7 +1508,7 @@ app.addEventListener("dblclick", (event) => {
 
 app.addEventListener("mouseup", (event) => {
   if (event.button !== 0 || event.detail !== 1) return;
-  if (event.target.closest("[data-morph-word]")) return;
+  if (event.target.closest("[data-morph-word], [data-apparatus-id]")) return;
   const verse = event.target.closest("[data-verse]");
   if (!verse || paneAt(Number(verse.dataset.pane)).view === "compare") return;
   const selection = window.getSelection();
@@ -1532,6 +1633,13 @@ document.addEventListener("keydown", (event) => {
       if (parsed) changeReference(parsed); else showToast("Use a reference like John 3:16.");
     }
   }
+});
+
+app.addEventListener("keydown", (event) => {
+  const apparatusAnchor = event.target.closest?.("[data-apparatus-id]");
+  if (!apparatusAnchor || !["Enter", " "].includes(event.key)) return;
+  event.preventDefault();
+  openVariantStudy(apparatusAnchor);
 });
 
 app.addEventListener("keydown", (event) => {
