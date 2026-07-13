@@ -586,12 +586,11 @@ function normalVersesMarkup(pane, paneIndex, verses, translation, translationId)
 }
 
 function interlinearMarkup(pane, paneIndex) {
-  const reference = displayReference(pane.reference);
   const originalId = interlinearTranslation(pane.reference);
   const topId = pane.translation;
   const topTranslation = TRANSLATIONS[topId];
-  const topVerses = scopedVerses(pane, chapterData[topId + "|" + reference]?.verses || []);
-  const originalByNumber = new Map(scopedVerses(pane, chapterData[originalId + "|" + reference]?.verses || []).map((verse) => [verse.number, verse]));
+  const topVerses = scopedVerses(pane, chapterData[chapterKey(pane.reference, topId)]?.verses || []);
+  const originalByNumber = new Map(scopedVerses(pane, chapterData[chapterKey(pane.reference, originalId)]?.verses || []).map((verse) => [verse.number, verse]));
   if (!topVerses.length) return emptyReader(topTranslation, { message: "Loading the interlinear pair..." });
   return '<div class="verse-list interlinear-list">' + topVerses.map((verse) => {
     const verseRef = verseReference(pane, verse.number);
@@ -605,14 +604,13 @@ function interlinearMarkup(pane, paneIndex) {
 }
 
 function comparisonMarkup(pane, paneIndex) {
-  const reference = displayReference(pane.reference);
   const verseNumber = Number(pane.reference.verse);
   const verseRef = verseReference(pane, verseNumber);
   const selected = isVerseSelected(verseRef) ? " selected" : "";
   const translations = comparisonTranslationIds(pane);
   return '<div class="verse-list comparison-list">' + translations.map((id) => {
     const translation = TRANSLATIONS[id];
-    const verse = (chapterData[id + "|" + reference]?.verses || []).find((item) => item.number === verseNumber);
+    const verse = (chapterData[chapterKey(pane.reference, id)]?.verses || []).find((item) => item.number === verseNumber);
     const isCuv = id === "CUVS" || id === "CUVT";
     const cuvPicker = '<span class="cuv-card-picker"><button data-action="cycle-compare-cuv" data-direction="-1" data-pane-index="' + paneIndex + '" title="Show CUV Simplified" aria-label="Show CUV Simplified">' + icon("chevron-left") + '</button><span class="cuv-dot ' + (id === "CUVS" ? "active" : "") + '"></span><span class="cuv-dot ' + (id === "CUVT" ? "active" : "") + '"></span><button data-action="cycle-compare-cuv" data-direction="1" data-pane-index="' + paneIndex + '" title="Show CUV Traditional" aria-label="Show CUV Traditional">' + icon("chevron-right") + "</button></span>";
     const label = escapeHtml(translation.label) + (isCuv ? cuvPicker : "");
