@@ -47,6 +47,13 @@ function cleanText(value) {
   return holder.textContent.replace(/\s+/g, " ").trim();
 }
 
+function sblCriticalMarkers(text) {
+  return Array.from(text.matchAll(/[⸀⸁⸂⸃⸄⸅⟦⟧\[\]]/gu)).map((match) => ({
+    marker: match[0],
+    index: match.index
+  }));
+}
+
 async function fetchNet(reference) {
   const chapterReference = { ...reference, verse: 0 };
   const url = "https://labs.bible.org/api/?passage=" + encodeURIComponent(displayReference(chapterReference)) + "&formatting=plain&type=json";
@@ -93,7 +100,12 @@ async function fetchSblGnt(reference) {
         text += next.textContent || "";
         next = next.nextSibling;
       }
-      return { number: Number(node.getAttribute("id").split(":")[1]), text: cleanText(text) };
+      const cleaned = cleanText(text);
+      return {
+        number: Number(node.getAttribute("id").split(":")[1]),
+        text: cleaned,
+        markers: sblCriticalMarkers(cleaned)
+      };
     })
     .filter((verse) => verse.text);
   if (!verses.length) throw new Error("No SBLGNT verses were found for this chapter.");

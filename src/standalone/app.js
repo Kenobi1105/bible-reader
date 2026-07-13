@@ -1,5 +1,5 @@
 import { BOOKS, chapterCount, displayReference, isOldTestament, moveChapter, parseReference } from "../core/references.js";
-import { TRANSLATIONS, getChapter } from "../core/bible-sources.js?v=3";
+import { TRANSLATIONS, getChapter } from "../core/bible-sources.js?v=4";
 import { downloadFile, loadCachedChapter, loadState, saveCachedChapter, saveState } from "../core/storage.js?v=2";
 import { isMorphologyTranslation, loadMorphologyBook, morphologySourceLabel } from "../core/morphology.js";
 import { getSblApparatusUnit, getSblApparatusUnits, loadSblApparatus } from "../core/sbl-apparatus.js?v=2";
@@ -184,8 +184,13 @@ function duplicateReaderCanvas(sourceIndex, targetIndex) {
   return { mode: "reader", lastUsed: 0, activeTab: id, tabs: [pane] };
 }
 
+function chapterKey(reference, translationId) {
+  const cacheVersion = translationId === "SBLGNT" ? "@markers-1" : "";
+  return translationId + cacheVersion + "|" + displayReference(reference);
+}
+
 function referenceKey(pane) {
-  return pane.translation + "|" + displayReference(pane.reference);
+  return chapterKey(pane.reference, pane.translation);
 }
 
 function selectedReference() {
@@ -449,48 +454,81 @@ function apparatusTooltip(unit) {
 }
 
 function apparatusTargetAttributes(unit, reference) {
-  return 'tabindex="0" role="button" data-apparatus-id="' + unit.id + '" data-apparatus-tooltip="' + escapeHtml(apparatusTooltip(unit)) + '" aria-label="Open textual variant for ' + escapeHtml(reference) + '"';
+  return 'tabindex="0" role="button" data-apparatus-id="' + unit.id + '" data-reader-tooltip="' + escapeHtml(apparatusTooltip(unit)) + '" aria-label="Open textual variant for ' + escapeHtml(reference) + '"';
 }
 
 function markerUnitForPosition(index, ranges, units) {
-  const direct = ranges.find((unit) => index >= unit.start - 1 && index <= unit.end);
-  return direct || units.find((unit) => unit.range) || null;
+  const direct = ranges.find((unit) => index >= unit.start - 2 && index <= unit.end + 2);
+  if (direct) return direct;
+  const nearby = ranges.slice().sort((left, right) => {
+    const leftDistance = Math.min(Math.abs(index - left.start), Math.abs(index - left.end));
+    const rightDistance = Math.min(Math.abs(index - right.start), Math.abs(index - right.end));
+    return leftDistance - rightDistance;
+  })[0];
+  return nearby || units.find((unit) => unit.range) || units[0] || null;
 }
 
-function sblApparatusMarkup(text, reference) {
+function morphologyRanges(text, words) {
+  const tokens = greekTokens(text);
+  let cursor = 0;
+  return (words || []).map((word, wordIndex) => {
+    const source = greekTokens(word.surface).map((token) => token.value);
+    if (!source.length) return null;
+    for (let index = cursor; index <= tokens.length - source.length; index += 1) {
+      if (source.every((value, offset) => tokens[index + offset].value === value)) {
+        cursor = index + source.length;
+        return { start: tokens[index].start, end: tokens[index + source.length - 1].end, word, wordIndex };
+      }
+    }
+    return null;
+  }).filter(Boolean);
+}
+
+function morphologyTargetAttributes(target, translationId, pane, reference) {
+  const word = target.word;
+  const title = "Lemma: " + (word.lemma || "Not listed") + "\nParsing: " + (word.description || "Not listed") + "\nCode: " + (word.morphology || "Not listed");
+  return 'tabindex="0" data-reader-tooltip="' + escapeHtml(title) + '" data-morph-word="' + target.wordIndex + '" data-morph-translation="' + translationId + '" data-morph-reference="' + escapeHtml(reference) + '" data-morph-book="' + escapeHtml(pane.reference.book) + '"';
+}
+
+function sblApparatusMarkup(verse, reference, pane, translationId, morphologyWords) {
+  const text = verse.text;
   const units = getSblApparatusUnits(reference);
   const ranges = apparatusRanges(text, reference);
   const wordTargets = [...ranges, ...units.filter((unit) => unit.range).map((unit) => ({ ...unit, start: 0, end: text.length }))];
-  const markers = Array.from(text.matchAll(/[⸀⸁⸂⸃⸄⸅⟦⟧\[\]]/gu)).map((match) => ({
-    start: match.index,
-    end: match.index + match[0].length,
-    unit: markerUnitForPosition(match.index, ranges, units)
+  const sourceMarkers = verse.markers?.length ? verse.markers : Array.from(text.matchAll(/[⸀⸁⸂⸃⸄⸅⟦⟧\[\]]/gu)).map((match) => ({ marker: match[0], index: match.index }));
+  const markers = sourceMarkers.map((marker) => ({
+    start: marker.index,
+    end: marker.index + marker.marker.length,
+    unit: markerUnitForPosition(marker.index, ranges, units)
   })).filter((marker) => marker.unit);
-  if (!wordTargets.length && !markers.length) return escapeHtml(text);
+  const morphTargets = morphologyRanges(text, morphologyWords);
+  if (!wordTargets.length && !markers.length && !morphTargets.length) return escapeHtml(text);
 
   const boundaries = new Set([0, text.length]);
-  [...wordTargets, ...markers].forEach((target) => { boundaries.add(target.start); boundaries.add(target.end); });
+  [...wordTargets, ...markers, ...morphTargets].forEach((target) => { boundaries.add(target.start); boundaries.add(target.end); });
   const points = [...boundaries].sort((left, right) => left - right);
   return points.slice(0, -1).map((start, index) => {
     const end = points[index + 1];
     const segment = escapeHtml(text.slice(start, end));
     const word = wordTargets.find((target) => start >= target.start && end <= target.end);
     const marker = markers.find((target) => start >= target.start && end <= target.end);
-    const wrapped = marker ? '<span class="apparatus-marker" ' + apparatusTargetAttributes(marker.unit, reference) + ">" + segment + "</span>" : segment;
-    return word ? '<span class="apparatus-affected" ' + apparatusTargetAttributes(word, reference) + ">" + wrapped + "</span>" : wrapped;
+    const morph = morphTargets.find((target) => start >= target.start && end <= target.end);
+    const parsed = morph ? '<span class="morph-word" ' + morphologyTargetAttributes(morph, translationId, pane, reference) + ">" + segment + "</span>" : segment;
+    const marked = marker ? '<span class="apparatus-marker" ' + apparatusTargetAttributes(marker.unit, reference) + ">" + parsed + "</span>" : parsed;
+    return word ? '<span class="apparatus-affected" ' + apparatusTargetAttributes(word, reference) + ">" + marked + "</span>" : marked;
   }).join("");
 }
 
 function parsedVerseMarkup(pane, translationId, verse) {
   const reference = verseReference(pane, verse.number);
-  if (translationId === "SBLGNT" && !pane.parseEnabled) return sblApparatusMarkup(verse.text, reference);
-  if (!pane.parseEnabled || !isMorphologyTranslation(translationId)) return escapeHtml(verse.text);
   const morphology = morphologyData[morphologyKey(translationId, pane.reference.book)];
   const words = morphology?.verses?.[pane.reference.chapter + ":" + verse.number];
+  if (translationId === "SBLGNT") return sblApparatusMarkup(verse, reference, pane, translationId, pane.parseEnabled ? words : null);
+  if (!pane.parseEnabled || !isMorphologyTranslation(translationId)) return escapeHtml(verse.text);
   if (!words?.length) return escapeHtml(verse.text);
   return words.map((word, index) => {
     const title = "Lemma: " + (word.lemma || "Not listed") + "\nParsing: " + (word.description || "Not listed") + "\nCode: " + (word.morphology || "Not listed");
-    return '<span class="morph-word" tabindex="0" title="' + escapeHtml(title) + '" data-morph-word="' + index + '" data-morph-translation="' + translationId + '" data-morph-reference="' + escapeHtml(reference) + '" data-morph-book="' + escapeHtml(pane.reference.book) + '">' + escapeHtml(word.surface) + "</span>";
+    return '<span class="morph-word" tabindex="0" data-reader-tooltip="' + escapeHtml(title) + '" data-morph-word="' + index + '" data-morph-translation="' + translationId + '" data-morph-reference="' + escapeHtml(reference) + '" data-morph-book="' + escapeHtml(pane.reference.book) + '">' + escapeHtml(word.surface) + "</span>";
   }).join(" ");
 }
 
@@ -821,7 +859,7 @@ function render() {
   app.innerHTML = '<main class="reader-shell">' + renderWorkspaceHeader() + renderReferenceBrowser() +
     '<div class="desk ' + (state.studyOpen && !studyDrawer ? "study-open" : "") + (studyDrawer ? " study-drawer-open" : "") + '"><section class="reading-area"><div class="pane-grid ' + paneGrid + (visibleParseIndex() !== undefined ? " has-parse" : "") + '" style="' + gridStyle + '">' +
       gridContents +
-    "</div></section>" + (state.studyOpen ? renderStudyPanel(studyDrawer) : "") + "</div></main>" + renderSettings() + renderPopover();
+    "</div></section>" + (state.studyOpen ? renderStudyPanel(studyDrawer) : "") + "</div></main>" + renderSettings() + renderPopover() + '<div class="reader-tooltip" id="reader-tooltip" role="tooltip"></div>';
   if (window.lucide) window.lucide.createIcons();
   document.querySelectorAll(".reader-pane[data-activate-pane] .verse-list").forEach((list) => {
     const pane = list.closest("[data-activate-pane]");
@@ -830,8 +868,32 @@ function render() {
   });
 }
 
+function hideReaderTooltip() {
+  document.querySelector("#reader-tooltip")?.classList.remove("visible");
+}
+
+function showReaderTooltip(target) {
+  const tooltip = document.querySelector("#reader-tooltip");
+  const canvas = target.closest(".verse-list") || target.closest(".reader-pane") || target.closest(".comparison-version");
+  if (!tooltip || !canvas || !target.dataset.readerTooltip) return;
+  tooltip.textContent = target.dataset.readerTooltip;
+  tooltip.style.maxWidth = Math.max(150, Math.min(280, canvas.getBoundingClientRect().width - 24)) + "px";
+  tooltip.classList.add("visible");
+
+  const canvasRect = canvas.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  const tooltipRect = tooltip.getBoundingClientRect();
+  const edge = 10;
+  const left = Math.max(canvasRect.left + edge, Math.min(targetRect.left + (targetRect.width / 2) - (tooltipRect.width / 2), canvasRect.right - tooltipRect.width - edge));
+  let top = targetRect.top - tooltipRect.height - 8;
+  if (top < canvasRect.top + edge) top = targetRect.bottom + 8;
+  top = Math.max(canvasRect.top + edge, Math.min(top, canvasRect.bottom - tooltipRect.height - edge));
+  tooltip.style.left = left + "px";
+  tooltip.style.top = top + "px";
+}
+
 async function loadChapterData(reference, translationId) {
-  const key = translationId + "|" + displayReference(reference);
+  const key = chapterKey(reference, translationId);
   if (chapterData[key]?.verses?.length) return chapterData[key];
   const cached = await loadCachedChapter(key);
   if (cached?.verses?.length) {
@@ -867,7 +929,7 @@ async function loadSupplementalVersions(pane) {
 async function prepareBrowseVerses() {
   const pane = activePane();
   const reference = { book: state.browseBook || pane.reference.book, chapter: state.browseChapter, verse: 1 };
-  const key = pane.translation + "|" + displayReference(reference);
+  const key = chapterKey(reference, pane.translation);
   browseVerseLoadKey = key;
   browseVerseCount = null;
   browseVerseMessage = "Loading verses...";
@@ -1523,6 +1585,25 @@ app.addEventListener("input", (event) => {
   if (event.target.matches("[data-note-editor], [data-note-markdown]")) syncNote();
 });
 
+app.addEventListener("pointerover", (event) => {
+  const target = event.target.closest?.("[data-reader-tooltip]");
+  if (target) showReaderTooltip(target);
+});
+
+app.addEventListener("pointerout", (event) => {
+  const target = event.target.closest?.("[data-reader-tooltip]");
+  if (target && !target.contains(event.relatedTarget)) hideReaderTooltip();
+});
+
+app.addEventListener("focusin", (event) => {
+  const target = event.target.closest?.("[data-reader-tooltip]");
+  if (target) showReaderTooltip(target);
+});
+
+app.addEventListener("focusout", (event) => {
+  if (event.target.closest?.("[data-reader-tooltip]")) hideReaderTooltip();
+});
+
 app.addEventListener("dblclick", (event) => {
   const verse = event.target.closest("[data-verse]");
   if (!verse || event.target.closest("[data-action], [data-morph-word], [data-apparatus-id]")) return;
@@ -1597,7 +1678,10 @@ window.addEventListener("pointerup", () => {
   render();
 });
 
+window.addEventListener("resize", hideReaderTooltip);
+
 app.addEventListener("scroll", (event) => {
+  hideReaderTooltip();
   const list = event.target;
   if (!(list instanceof Element) || !list.matches(".verse-list") || state.layout < 2 || !state.paneSync || syncScrollLocked) return;
   const readerPane = list.closest("[data-activate-pane]");
