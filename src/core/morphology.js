@@ -156,10 +156,11 @@ function greekDescription(pos, code) {
 }
 
 function hebrewDescription(morphology) {
-  const code = (morphology || "").split("/").pop() || "";
+  const rawCode = (morphology || "").split("/").pop() || "";
+  // OSHB marks Hebrew morphology with an initial language marker, e.g. HVqp3ms.
+  const code = rawCode.replace(/^H(?=[A-Z])/, "");
   const parts = [];
   const type = { N: "Noun", V: "Verb", A: "Adjective", P: "Pronoun", R: "Preposition", C: "Conjunction", D: "Adverb", T: "Particle", S: "Suffix" }[code[0]] || "Hebrew word";
-  parts.push(type);
   if (code[0] === "V") {
     const stem = { q: "Qal", N: "Niphal", p: "Piel", P: "Pual", h: "Hiphil", H: "Hophal", t: "Hithpael" }[code[1]];
     const aspect = { p: "perfect", i: "imperfect", w: "wayyiqtol", v: "imperative", r: "participle", s: "infinitive" }[code[2]];
@@ -168,7 +169,10 @@ function hebrewDescription(morphology) {
     if (code[3] && /[123]/.test(code[3])) parts.push(code[3] + (code[3] === "1" ? "st" : code[3] === "2" ? "nd" : "rd") + " person");
     if ({ m: "masculine", f: "feminine", c: "common" }[code[4]]) parts.push({ m: "masculine", f: "feminine", c: "common" }[code[4]]);
     if ({ s: "singular", p: "plural", d: "dual" }[code[5]]) parts.push({ s: "singular", p: "plural", d: "dual" }[code[5]]);
-  } else if (code[0] === "N" || code[0] === "A" || code[0] === "P") {
+  } else {
+    parts.push(type);
+  }
+  if (code[0] === "N" || code[0] === "A" || code[0] === "P") {
     if ({ m: "masculine", f: "feminine", c: "common" }[code[2]]) parts.push({ m: "masculine", f: "feminine", c: "common" }[code[2]]);
     if ({ s: "singular", p: "plural", d: "dual" }[code[3]]) parts.push({ s: "singular", p: "plural", d: "dual" }[code[3]]);
     if ({ a: "absolute", c: "construct", d: "determined" }[code[4]]) parts.push({ a: "absolute", c: "construct", d: "determined" }[code[4]]);
