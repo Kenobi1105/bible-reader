@@ -53,7 +53,7 @@ button { color: inherit; }
 .topbar-spacer { flex: 1; }
 .icon-button, .format-button { width: 36px; height: 36px; border: 1px solid var(--border); background: transparent; border-radius: 6px; display: inline-grid; place-items: center; cursor: pointer; }
 .icon-button:hover, .format-button:hover { background: var(--surface-muted); }
-.icon-button.active { border-color: var(--accent); background: #f2e1d6; color: var(--accent-dark); }
+.icon-button.active { border-color: #c8a282; background: #f8ede1; color: var(--plum); }
 .icon-button i { width: 17px; height: 17px; }
 .user-dot { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--plum); color: #fffaf1; font-size: 12px; font-weight: 700; }
 
@@ -599,6 +599,9 @@ body.dark .reveal-title { border-color: var(--border); }
 .variant-reading.current { padding-left: 11px; border-left: 2px solid var(--gold); background: linear-gradient(90deg, rgba(240,208,143,.14), transparent 72%); }
 .variant-reading strong { display: block; margin-top: 4px; color: var(--ink); font-size: 21px; font-weight: 400; line-height: 1.35; }
 .variant-witnesses { color: var(--muted); font-size: 11px; line-height: 1.35; }
+.variant-witness { border-bottom: 1px dotted currentColor; cursor: help; }
+.variant-witness:hover, .variant-witness:focus { outline: 0; color: var(--plum); background: rgba(240,208,143,.18); }
+.witness-separator { color: var(--muted); }
 .variants-source { margin-top: auto; padding-top: 15px; border-top: 1px solid var(--border); color: var(--muted); font-size: 10px; line-height: 1.4; }
 .selection-count { margin-left: 6px; color: var(--muted); font-size: 11px; font-weight: 600; }
 .popover-actions, .focus-actions { display: flex; align-items: center; gap: 6px; }
@@ -753,6 +756,8 @@ body.dark .reader-pane .apparatus-marker { color: #f0d08f; }
 body.dark .reader-pane .apparatus-marker:hover, body.dark .reader-pane .apparatus-marker:focus { color: #f0d08f; background: rgba(240,208,143,.18); }
 body.dark .parse-toggle, body.dark .parse-toggle:has(input:checked) { color: #493548; }
 body.dark .reader-tooltip { border-color: rgba(240,208,143,.5); background: #2d2933; color: #fff4d4; }
+body.dark .icon-button.active { border-color: #c8a282; background: #f8ede1; color: #493548; }
+body.dark .variant-witness:hover, body.dark .variant-witness:focus { color: #f0d08f; background: rgba(240,208,143,.14); }
 body.dark .variant-reading { border-color: #4b4450; }
 body.dark .variant-reading.current { background: linear-gradient(90deg, rgba(240,208,143,.12), transparent 72%); }
 body.dark .study-panel, body.dark .study-drawer { background: #211f26; box-shadow: -14px 0 34px rgba(0,0,0,.34); }

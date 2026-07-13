@@ -764,6 +764,28 @@ function bookmarksMarkup() {
   return '<div class="bookmark-panel"><div class="note-reference"><span>Saved passages</span><span>' + state.bookmarks.length + "</span></div>" + cards + "</div>";
 }
 
+const APPARATUS_WITNESS_LABELS = {
+  WH: "Westcott and Hort",
+  Treg: "Tregelles",
+  NIV: "Greek text underlying the New International Version",
+  RP: "Robinson-Pierpont Byzantine Textform",
+  NA27: "Nestle-Aland 27 / UBS4",
+  NA28: "Nestle-Aland 28",
+  ECM: "Editio Critica Maior",
+  Greeven: "Greeven Greek New Testament",
+  Holmes: "Holmes Greek New Testament",
+  Tregmarg: "Tregelles marginal reading",
+  WHmarg: "Westcott and Hort marginal reading"
+};
+
+function witnessMarkup(witnesses) {
+  if (!witnesses.length) return "Edition support not listed";
+  return witnesses.map((witness) => {
+    const label = APPARATUS_WITNESS_LABELS[witness] || witness;
+    return '<span class="variant-witness" tabindex="0" data-reader-tooltip="' + escapeHtml(label) + '">' + escapeHtml(witness) + "</span>";
+  }).join('<span class="witness-separator"> · </span>');
+}
+
 function variantsMarkup() {
   const unit = getSblApparatusUnit(state.variantUnit);
   if (!unit) {
@@ -771,8 +793,7 @@ function variantsMarkup() {
   }
   const readings = unit.readings.map((reading) => {
     const current = reading.text === unit.lemma;
-    const editions = reading.witnesses.length ? reading.witnesses.join(" · ") : "Edition support not listed";
-    return '<li class="variant-reading' + (current ? " current" : "") + '"><div><span class="variant-reading-label">' + (current ? "SBLGNT reading" : "Alternate reading") + '</span><strong class="lang-greek">' + escapeHtml(reading.text) + '</strong></div><span class="variant-witnesses">' + escapeHtml(editions) + "</span></li>";
+    return '<li class="variant-reading' + (current ? " current" : "") + '"><div><span class="variant-reading-label">' + (current ? "SBLGNT reading" : "Alternate reading") + '</span><strong class="lang-greek">' + escapeHtml(reading.text) + '</strong></div><span class="variant-witnesses">' + witnessMarkup(reading.witnesses) + "</span></li>";
   }).join("");
   const rangeLabel = unit.range ? unit.range.start.book + " " + unit.range.start.chapter + ":" + unit.range.start.verse + "–" + unit.range.end.chapter + ":" + unit.range.end.verse : "";
   const title = unit.range ? rangeLabel : unit.lemma;
@@ -874,7 +895,7 @@ function hideReaderTooltip() {
 
 function showReaderTooltip(target) {
   const tooltip = document.querySelector("#reader-tooltip");
-  const canvas = target.closest(".verse-list") || target.closest(".reader-pane") || target.closest(".comparison-version");
+  const canvas = target.closest(".verse-list") || target.closest(".reader-pane") || target.closest(".comparison-version") || target.closest(".variants-panel") || target.closest(".study-panel");
   if (!tooltip || !canvas || !target.dataset.readerTooltip) return;
   tooltip.textContent = target.dataset.readerTooltip;
   tooltip.style.maxWidth = Math.max(150, Math.min(280, canvas.getBoundingClientRect().width - 24)) + "px";
