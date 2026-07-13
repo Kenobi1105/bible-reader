@@ -516,10 +516,10 @@ function renderPane(pane, paneIndex) {
 
 function parseDetailRow(label, value, className = "") {
   if (!value) return "";
-  return '<div class="' + className + '"><dt>' + escapeHtml(label) + '</dt><dd>' + escapeHtml(value) + "</dd></div>";
+  return '<div class="parse-detail ' + className + '"><dt>' + escapeHtml(label) + '</dt><dd>' + escapeHtml(value) + "</dd></div>";
 }
 
-function parseDetailsMarkup(data) {
+function parseLexicalMarkup(data) {
   const word = data.word;
   const lexical = word.lexical || {};
   const rows = [];
@@ -530,11 +530,21 @@ function parseDetailsMarkup(data) {
   } else {
     rows.push(parseDetailRow("Lemma", lexical.lemma || word.lemma));
   }
-  rows.push(parseDetailRow("Gloss", lexical.gloss, "parse-gloss"));
-  rows.push(parseDetailRow("Parsing", word.description));
-  rows.push(parseDetailRow("Lexicon ID", lexical.id));
-  rows.push(parseDetailRow("Source code", word.morphology, "parse-code"));
   return rows.join("");
+}
+
+function parsingTerms(value) {
+  return String(value || "Not listed").split(";").map((term) => term.trim()).filter(Boolean)
+    .map((term) => '<span>' + escapeHtml(term) + '</span>').join('<b aria-hidden="true">·</b>');
+}
+
+function parseMetadataMarkup(data, lexicalCredit) {
+  const lexical = data.word.lexical || {};
+  const metadata = [];
+  if (lexical.id) metadata.push("Lexicon ID " + lexical.id);
+  if (data.word.morphology) metadata.push("Source " + data.word.morphology);
+  metadata.push(morphologySourceLabel(data.translation) + lexicalCredit);
+  return metadata.map((item) => '<span>' + escapeHtml(item) + '</span>').join("");
 }
 
 function renderParsePane(canvas, paneIndex) {
@@ -544,7 +554,8 @@ function renderParsePane(canvas, paneIndex) {
   const classes = "parse-pane paper-" + state.paper + (state.mobilePane === paneIndex ? " mobile-active" : "");
   if (!data) return '<article class="' + classes + '"><div class="parse-pane-header"><span>Parsing</span><button class="format-button" data-action="close-parse-panel" data-pane-index="' + paneIndex + '" title="Close parsing panel">' + icon("x") + '</button></div><div class="parse-empty">Select a parsed Hebrew or Greek word.</div></article>';
   const lexicalCredit = data.word.lexical ? " Lexical glosses: Open Scriptures Strong's Dictionaries." : "";
-  return '<article class="' + classes + '"><div class="parse-pane-header"><div><span class="parse-kicker">' + escapeHtml(data.translation) + '</span><strong>Word parsing</strong></div><button class="format-button" data-action="close-parse-panel" data-pane-index="' + paneIndex + '" title="Restore reader panel">' + icon("x") + '</button></div><div class="parse-content parse-content-' + escapeHtml(data.translation.toLowerCase()) + '" dir="' + direction + '"><section class="parse-word-stage"><div class="parse-reference">' + escapeHtml(data.reference) + '</div><div class="parse-word">' + escapeHtml(data.word.surface) + '</div></section><dl class="parse-details">' + parseDetailsMarkup(data) + '</dl><p class="parse-source">' + escapeHtml(morphologySourceLabel(data.translation) + lexicalCredit) + '</p></div></article>';
+  const lexical = data.word.lexical || {};
+  return '<article class="' + classes + '"><header class="parse-pane-header"><div><span class="parse-kicker">' + escapeHtml(data.translation) + '</span><strong>Word parsing</strong></div><button class="format-button" data-action="close-parse-panel" data-pane-index="' + paneIndex + '" title="Restore reader panel">' + icon("x") + '</button></header><div class="parse-content parse-content-' + escapeHtml(data.translation.toLowerCase()) + '" dir="' + direction + '"><section class="parse-word-hero"><p class="parse-reference">' + escapeHtml(data.reference) + '</p><div class="parse-word">' + escapeHtml(data.word.surface) + '</div></section><section class="parse-lexical" aria-label="Lexical information"><dl class="parse-details">' + parseLexicalMarkup(data) + '</dl></section><section class="parse-emphasis parse-gloss-section" aria-labelledby="parse-gloss-' + paneIndex + '"><h2 id="parse-gloss-' + paneIndex + '">Gloss</h2><p>' + escapeHtml(lexical.gloss || "Not listed") + '</p></section><section class="parse-parsing-section" aria-labelledby="parse-parsing-' + paneIndex + '"><h2 id="parse-parsing-' + paneIndex + '">Parsing</h2><p class="parse-terms">' + parsingTerms(data.word.description) + '</p></section><footer class="parse-metadata">' + parseMetadataMarkup(data, lexicalCredit) + '</footer></div></article>';
 }
 
 function htmlToMarkdown(html) {
