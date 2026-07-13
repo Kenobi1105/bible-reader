@@ -521,8 +521,7 @@ function parseDetailRow(label, value, className = "") {
 
 function cleanParserDisplay(value) {
   return String(value || "")
-    .replace(/[()[\]{}⟦⟧⟨⟩‹›†‡*.,;:·]/g, "")
-    .replace(/[\u2E00-\u2E7F]/g, "")
+    .replace(/[\p{P}\p{S}]/gu, "")
     .replace(/\s+/g, " ")
     .trim();
 }
