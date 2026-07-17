@@ -701,8 +701,9 @@ body.dark .reveal-title { border-color: var(--border); }
 @media (max-width: 760px) {
   .pane-grid.split > .reader-pane:not(.mobile-active), .pane-grid.split > .parse-pane:not(.mobile-active), .pane-grid.triple > .reader-pane:not(.mobile-active), .pane-grid.triple > .parse-pane:not(.mobile-active) { display: none; }
   .reader-pane { overflow: visible; }
-  .reader-pane .canvas-tabs { position: sticky; top: 61px; z-index: 20; background: var(--surface); box-shadow: 0 5px 12px rgba(73,53,72,.09); }
-  .verse, .interlinear-verse, .comparison-version { scroll-margin-top: 114px; }
+  .reader-pane .canvas-tabs { position: sticky; top: 70px; z-index: 20; background: var(--surface); box-shadow: 0 5px 12px rgba(73,53,72,.09); }
+  .reader-pane .pane-header { position: sticky; top: 110px; z-index: 19; border-bottom: 1px solid var(--border); background: var(--paper); box-shadow: 0 6px 12px rgba(73,53,72,.07); }
+  .verse, .interlinear-verse, .comparison-version { scroll-margin-top: 215px; }
   .desk.study-drawer-open .study-panel { top: auto; width: auto; height: min(72vh, 620px); border-right: 1px solid var(--border); border-radius: 8px 8px 0 0; }
   .desk.study-entering .study-panel { animation-name: study-panel-enter-bottom; }
   @keyframes study-panel-enter-bottom {
