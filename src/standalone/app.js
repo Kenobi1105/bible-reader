@@ -600,8 +600,8 @@ function interlinearMarkup(pane, paneIndex) {
     const original = originalByNumber.get(verse.number);
     const selected = isVerseSelected(verseRef) ? " selected" : "";
     return '<div class="interlinear-verse' + selected + '" data-verse="' + escapeHtml(verseRef) + '" data-pane="' + paneIndex + '">' +
-      '<div class="interlinear-line top-line lang-' + (topTranslation.fontClass || topTranslation.script || "latin") + '" dir="' + topTranslation.direction + '"><span class="interlinear-label">' + topId + '</span><sup class="verse-number">' + verse.number + "</sup>" + escapeHtml(verse.text) + "</div>" +
-      '<div class="interlinear-line original-line lang-' + (TRANSLATIONS[originalId].fontClass || TRANSLATIONS[originalId].script) + '" dir="' + TRANSLATIONS[originalId].direction + '"><span class="interlinear-label">' + originalId + "</span>" + (original ? '<sup class="verse-number">' + original.number + "</sup>" + parsedVerseMarkup(pane, originalId, original) : '<span class="interlinear-loading">Loading ' + originalId + "...</span>") + "</div>" +
+      '<div class="interlinear-line top-line lang-' + (topTranslation.fontClass || topTranslation.script || "latin") + '" dir="' + topTranslation.direction + '"><span class="interlinear-label">' + topId + '</span><span class="interlinear-content"><sup class="verse-number">' + verse.number + "</sup>" + escapeHtml(verse.text) + "</span></div>" +
+      '<div class="interlinear-line original-line lang-' + (TRANSLATIONS[originalId].fontClass || TRANSLATIONS[originalId].script) + '" dir="' + TRANSLATIONS[originalId].direction + '"><span class="interlinear-label">' + originalId + '</span><span class="interlinear-content">' + (original ? '<sup class="verse-number">' + original.number + "</sup>" + parsedVerseMarkup(pane, originalId, original) : '<span class="interlinear-loading">Loading ' + originalId + "...</span>") + "</span></div>" +
     "</div>";
   }).join("") + "</div>";
 }
