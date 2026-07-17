@@ -313,6 +313,7 @@ body.dark .study-panel { background: #222124; }
   --accent-dark: #382837;
   --sage: #6f7d74;
   --shadow: 0 12px 34px rgba(73, 53, 72, .08);
+  --mobile-reader-header-height: 70px;
 }
 
 .reader-shell { background: #f5f3f7; }
@@ -700,10 +701,15 @@ body.dark .reveal-title { border-color: var(--border); }
 
 @media (max-width: 760px) {
   .pane-grid.split > .reader-pane:not(.mobile-active), .pane-grid.split > .parse-pane:not(.mobile-active), .pane-grid.triple > .reader-pane:not(.mobile-active), .pane-grid.triple > .parse-pane:not(.mobile-active) { display: none; }
-  .reader-pane { overflow: visible; }
-  .reader-pane .canvas-tabs { position: sticky; top: 70px; z-index: 20; background: var(--surface); box-shadow: 0 5px 12px rgba(73,53,72,.09); }
-  .reader-pane .pane-header { position: sticky; top: 110px; z-index: 19; border-bottom: 1px solid var(--border); background: var(--paper); box-shadow: 0 6px 12px rgba(73,53,72,.07); }
-  .verse, .interlinear-verse, .comparison-version { scroll-margin-top: 215px; }
+  .reader-shell { height: 100dvh; min-height: 100dvh; overflow: hidden; }
+  .desk, .desk.study-open { display: block; height: calc(100dvh - var(--mobile-reader-header-height)); min-height: 0; overflow: hidden; }
+  .reading-area { height: 100%; min-height: 0; padding: 10px 10px 12px; overflow: hidden; }
+  .pane-grid.single, .pane-grid.split, .pane-grid.triple { display: block; width: 100%; max-width: none; height: 100%; min-height: 0; }
+  .reader-pane, .parse-pane { display: flex; height: 100%; min-height: 0; flex-direction: column; overflow: hidden; }
+  .reader-pane .canvas-tabs, .reader-pane .pane-header, .reader-pane .passage-choice, .reader-pane .source-status { position: static; flex: 0 0 auto; box-shadow: none; }
+  .reader-pane .verse-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+  .parse-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  .reference-browser.open { inset: var(--mobile-reader-header-height) 12px auto; max-height: calc(100dvh - var(--mobile-reader-header-height) - 16px); }
   .desk.study-drawer-open .study-panel { top: auto; width: auto; height: min(72vh, 620px); border-right: 1px solid var(--border); border-radius: 8px 8px 0 0; }
   .desk.study-entering .study-panel { animation-name: study-panel-enter-bottom; }
   @keyframes study-panel-enter-bottom {

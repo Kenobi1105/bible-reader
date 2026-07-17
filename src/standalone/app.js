@@ -103,6 +103,7 @@ let resizeSession = null;
 let apparatusLoading = new Set();
 let apparatusReady = new Set();
 let studyEntrance = false;
+let mobileHeaderObserver = null;
 
 function icon(name) {
   return '<i data-lucide="' + name + '"></i>';
@@ -883,12 +884,30 @@ function render() {
       gridContents +
     "</div></section>" + (state.studyOpen ? renderStudyPanel(studyDrawer) : "") + "</div></main>" + renderSettings() + renderPopover() + '<div class="reader-tooltip" id="reader-tooltip" role="tooltip"></div>';
   if (window.lucide) window.lucide.createIcons();
+  syncMobileReaderFrame();
   document.querySelectorAll(".reader-pane[data-activate-pane] .verse-list").forEach((list) => {
     const pane = list.closest("[data-activate-pane]");
     const scrollTop = pane ? paneScrollPositions[pane.dataset.activatePane] : null;
     if (Number.isFinite(scrollTop)) list.scrollTop = scrollTop;
   });
   if (studyEntrance) window.setTimeout(() => { studyEntrance = false; }, 280);
+}
+
+function syncMobileReaderFrame() {
+  mobileHeaderObserver?.disconnect();
+  mobileHeaderObserver = null;
+  if (window.innerWidth > 760) {
+    document.documentElement.style.removeProperty("--mobile-reader-header-height");
+    return;
+  }
+  const header = document.querySelector(".workspace-header");
+  if (!header) return;
+  const updateHeight = () => document.documentElement.style.setProperty("--mobile-reader-header-height", Math.ceil(header.getBoundingClientRect().height) + "px");
+  updateHeight();
+  if (window.ResizeObserver) {
+    mobileHeaderObserver = new ResizeObserver(updateHeight);
+    mobileHeaderObserver.observe(header);
+  }
 }
 
 function hideReaderTooltip() {
@@ -1701,7 +1720,8 @@ window.addEventListener("pointerup", () => {
   render();
 });
 
-window.addEventListener("resize", hideReaderTooltip);
+window.addEventListener("resize", () => { hideReaderTooltip(); syncMobileReaderFrame(); });
+window.visualViewport?.addEventListener("resize", syncMobileReaderFrame);
 
 app.addEventListener("scroll", (event) => {
   hideReaderTooltip();
