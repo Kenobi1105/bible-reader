@@ -102,6 +102,7 @@ let lastSyncedScrollReference = "";
 let resizeSession = null;
 let apparatusLoading = new Set();
 let apparatusReady = new Set();
+let studyEntrance = false;
 
 function icon(name) {
   return '<i data-lucide="' + name + '"></i>';
@@ -251,7 +252,8 @@ function revealArrivalIfReady(pane, key) {
     const verse = document.querySelector('[data-activate-pane="' + paneIndex + '"] [data-verse="' + arrival + '"]');
     if (!verse) return;
     const scrollArea = verse.closest(".verse-list");
-    if (scrollArea) {
+    const usesPanelScroll = scrollArea && scrollArea.scrollHeight > scrollArea.clientHeight + 1 && getComputedStyle(scrollArea).overflowY !== "visible";
+    if (usesPanelScroll) {
       const scrollTop = scrollArea.scrollTop + verse.getBoundingClientRect().top - scrollArea.getBoundingClientRect().top - 16;
       scrollArea.scrollTo({ top: Math.max(0, scrollTop), behavior: "smooth" });
     } else {
@@ -810,6 +812,7 @@ function openVariantStudy(target) {
   }
   state.variantUnit = unit.id;
   state.studyTab = "variants";
+  studyEntrance = !state.studyOpen;
   state.studyOpen = true;
   persist();
   render();
@@ -876,7 +879,7 @@ function render() {
       : paneIndexes.map(renderPanel).join("");
   const gridStyle = '--single-panel-width:' + state.singlePanelWidth + 'px;--left-panel-width:' + Math.round(state.twoPanelRatio * 1000) / 10 + '%;';
   app.innerHTML = '<main class="reader-shell">' + renderWorkspaceHeader() + renderReferenceBrowser() +
-    '<div class="desk ' + (state.studyOpen && !studyDrawer ? "study-open" : "") + (studyDrawer ? " study-drawer-open" : "") + '"><section class="reading-area"><div class="pane-grid ' + paneGrid + (visibleParseIndex() !== undefined ? " has-parse" : "") + '" style="' + gridStyle + '">' +
+    '<div class="desk ' + (state.studyOpen && !studyDrawer ? "study-open" : "") + (studyDrawer ? " study-drawer-open" : "") + (studyEntrance ? " study-entering" : "") + '"><section class="reading-area"><div class="pane-grid ' + paneGrid + (visibleParseIndex() !== undefined ? " has-parse" : "") + '" style="' + gridStyle + '">' +
       gridContents +
     "</div></section>" + (state.studyOpen ? renderStudyPanel(studyDrawer) : "") + "</div></main>" + renderSettings() + renderPopover() + '<div class="reader-tooltip" id="reader-tooltip" role="tooltip"></div>';
   if (window.lucide) window.lucide.createIcons();
@@ -885,6 +888,7 @@ function render() {
     const scrollTop = pane ? paneScrollPositions[pane.dataset.activatePane] : null;
     if (Number.isFinite(scrollTop)) list.scrollTop = scrollTop;
   });
+  if (studyEntrance) window.setTimeout(() => { studyEntrance = false; }, 280);
 }
 
 function hideReaderTooltip() {
@@ -1502,7 +1506,7 @@ app.addEventListener("click", async (event) => {
     }
     persist(); render(); return;
   }
-  if (action === "toggle-study") { state.studyOpen = !state.studyOpen; persist(); render(); return; }
+  if (action === "toggle-study") { studyEntrance = !state.studyOpen; state.studyOpen = !state.studyOpen; persist(); render(); return; }
   if (action === "close-parse-panel") return closeParsingPanel(Number(actionTarget.dataset.paneIndex));
   if (action === "settings") return openSettings(actionTarget);
   if (action === "dark-mode") { state.dark = !state.dark; persist(); render(); return; }
@@ -1513,10 +1517,10 @@ app.addEventListener("click", async (event) => {
   }
   if (action === "bookmark") {
     if (!state.bookmarks.some((item) => item.reference === popoverVerse)) state.bookmarks.push({ id: createRecordId("bookmark"), reference: popoverVerse, label: "Saved passage" });
-    state.studyTab = "bookmarks"; state.studyOpen = true; persist(); popoverVerse = null; render(); showToast("Passage saved."); return;
+    state.studyTab = "bookmarks"; studyEntrance = !state.studyOpen; state.studyOpen = true; persist(); popoverVerse = null; render(); showToast("Passage saved."); return;
   }
   if (action === "copy-verse") { await navigator.clipboard?.writeText(popoverVerse); showToast("Reference copied."); return; }
-  if (action === "open-note") { state.studyTab = "notes"; state.studyOpen = true; popoverVerse = null; persist(); render(); return; }
+  if (action === "open-note") { state.studyTab = "notes"; studyEntrance = !state.studyOpen; state.studyOpen = true; popoverVerse = null; persist(); render(); return; }
   if (action === "clear-highlight") {
     highlightedVerseReferences().forEach((reference) => delete state.highlights[reference]);
     persist(); popoverVerse = null; state.selectedVerse = null; multiVerseSelection = []; render(); return;

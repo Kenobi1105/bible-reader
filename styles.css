@@ -675,6 +675,11 @@ body.dark .reveal-title { border-color: var(--border); }
 .parse-metadata span + span::before { margin-inline-end: 14px; color: var(--accent); content: "·"; }
 .parse-empty { padding: 28px 20px; color: var(--muted); font-size: 13px; }
 .desk.study-drawer-open .study-panel { position: fixed; z-index: 35; top: 70px; right: 0; width: min(390px, calc(100vw - 24px)); height: calc(100vh - 70px); border: 1px solid var(--border); border-right: 0; border-radius: 9px 0 0 9px; box-shadow: -14px 0 34px rgba(44,29,37,.18); }
+.desk.study-entering .study-panel { animation: study-panel-enter-right .24s cubic-bezier(.2,.75,.25,1) both; }
+@keyframes study-panel-enter-right {
+  from { opacity: 0; transform: translateX(22px); }
+  to { opacity: 1; transform: translateX(0); }
+}
 .study-drawer-close { position: absolute; z-index: 1; top: 8px; right: 10px; display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--border); border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; }
 .study-drawer-close:hover { border-color: #cbb8a7; background: #f0ebf2; color: var(--accent); }
 .study-drawer-close svg { display: block; width: 14px; height: 14px; }
@@ -695,12 +700,24 @@ body.dark .reveal-title { border-color: var(--border); }
 
 @media (max-width: 760px) {
   .pane-grid.split > .reader-pane:not(.mobile-active), .pane-grid.split > .parse-pane:not(.mobile-active), .pane-grid.triple > .reader-pane:not(.mobile-active), .pane-grid.triple > .parse-pane:not(.mobile-active) { display: none; }
+  .reader-pane { overflow: visible; }
+  .reader-pane .canvas-tabs { position: sticky; top: 61px; z-index: 20; background: var(--surface); box-shadow: 0 5px 12px rgba(73,53,72,.09); }
+  .verse, .interlinear-verse, .comparison-version { scroll-margin-top: 114px; }
   .desk.study-drawer-open .study-panel { top: auto; width: auto; height: min(72vh, 620px); border-right: 1px solid var(--border); border-radius: 8px 8px 0 0; }
+  .desk.study-entering .study-panel { animation-name: study-panel-enter-bottom; }
+  @keyframes study-panel-enter-bottom {
+    from { opacity: 0; transform: translateY(24px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
   .pane-settings-popover { grid-template-columns: 1fr; left: 8px; }
   .parse-content { padding: 24px 20px 20px; }
   .parse-detail { grid-template-columns: 1fr; gap: 5px; padding-inline-start: 13px; }
   .parse-word { font-size: 37px; }
   .parse-emphasis p { font-size: 20px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desk.study-entering .study-panel { animation: none; }
 }
 
 /* Adjustable one- and two-panel desk layouts */
