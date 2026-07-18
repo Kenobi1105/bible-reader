@@ -536,6 +536,7 @@ body.dark .reveal-title { border-color: var(--border); }
 .interlinear-line.top-line[dir="rtl"] .interlinear-label { grid-column: 2; text-align: right; }
 .interlinear-line.top-line[dir="rtl"] .interlinear-content { grid-column: 1; }
 .interlinear-loading, .comparison-loading { color: var(--muted); font-family: "Source Serif 4", Georgia, serif; font-size: 12px; }
+.blank-reader-surface { flex: 1 1 auto; min-height: 0; }
 .comparison-list { display: grid; gap: 10px; }
 .comparison-version { padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
 .comparison-version.lang-chinese-sc .comparison-text { font-family: "Source Han Serif SC", "Noto Serif SC", serif; font-size: var(--font-size-chinese); }

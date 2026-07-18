@@ -374,7 +374,7 @@ function renderReferenceBrowser() {
 }
 
 function renderWorkspaceHeader() {
-  const reference = displayReference(activePane().reference);
+  const reference = activePane().blank ? "" : displayReference(activePane().reference);
   const visiblePanels = visiblePaneIndexes();
   return '<header class="workspace-header"><div class="brand compact"><div class="brand-mark">' + icon("book-open") + '</div><div>Scripture Desk</div></div>' +
     '<div class="header-actions"><div class="reference-entry">' + icon("search") +
@@ -625,19 +625,23 @@ function comparisonMarkup(pane, paneIndex) {
 
 function renderPane(pane, paneIndex) {
   const translation = TRANSLATIONS[pane.translation];
+  const classes = "reader-pane paper-" + state.paper + " view-" + pane.view + (translation.script ? " lang-" + (translation.fontClass || translation.script) : "") + (paneIndex === state.activePane ? " active-pane" : "") + (state.mobilePane === paneIndex ? " mobile-active" : "");
+  if (pane.blank) {
+    return '<article class="' + classes + ' blank-reader-pane" data-activate-pane="' + paneIndex + '">' + renderCanvasTabs(paneIndex) + '<div class="blank-reader-surface" aria-label="Empty reader"></div></article>';
+  }
   const loadedResult = chapterData[referenceKey(pane)];
   const showingFallback = !loadedResult && pane.fallback?.result;
   const result = loadedResult || pane.fallback?.result;
   const displayTranslation = showingFallback ? TRANSLATIONS[pane.fallback.translation] : translation;
   const verses = scopedVerses(pane, result?.verses || []);
-  const classes = "reader-pane paper-" + state.paper + " view-" + pane.view + (displayTranslation.script ? " lang-" + (displayTranslation.fontClass || displayTranslation.script) : "") + (paneIndex === state.activePane ? " active-pane" : "") + (state.mobilePane === paneIndex ? " mobile-active" : "");
+  const classesWithFallback = "reader-pane paper-" + state.paper + " view-" + pane.view + (displayTranslation.script ? " lang-" + (displayTranslation.fontClass || displayTranslation.script) : "") + (paneIndex === state.activePane ? " active-pane" : "") + (state.mobilePane === paneIndex ? " mobile-active" : "");
   const offlineStatus = pane.loading ? '<span class="offline-status loading-status">' + icon("loader-circle") + "Loading " + translation.label + "</span>" : !navigator.onLine ? '<span class="offline-status">' + icon("wifi-off") + "Offline · " + translation.label + "</span>" : "";
   const displayTranslationId = showingFallback ? pane.fallback.translation : pane.translation;
   const versesHtml = pane.view === "interlinear" ? interlinearMarkup(pane, paneIndex) : pane.view === "compare" ? comparisonMarkup(pane, paneIndex) : verses.length ? normalVersesMarkup(pane, paneIndex, verses, displayTranslation, displayTranslationId) : emptyReader(displayTranslation, result);
   const contextControl = pane.scope === "verse"
     ? '<div class="passage-choice chapter-return"><button class="show-chapter" data-action="show-whole-chapter" data-pane-index="' + paneIndex + '">' + icon("maximize-2") + "Show whole chapter</button></div>"
     : "";
-  return '<article class="' + classes + '" data-activate-pane="' + paneIndex + '">' + renderCanvasTabs(paneIndex) +
+  return '<article class="' + classesWithFallback + '" data-activate-pane="' + paneIndex + '">' + renderCanvasTabs(paneIndex) +
     '<div class="pane-header">' + (offlineStatus ? '<div class="pane-topline">' + offlineStatus + "</div>" : "") + '<div class="chapter-nav"><button class="chapter-arrow" data-chapter-nav="' + paneIndex + '|-1" title="Previous chapter">' + icon("chevron-left") + '</button><div>' +
       '<h1 class="chapter-title">' + escapeHtml(pane.reference.book) + " " + pane.reference.chapter + '</h1><p class="pane-meta">' + escapeHtml(displayTranslation.name) + " · " + escapeHtml(displayTranslation.language) + "</p></div>" +
       '<button class="chapter-arrow" data-chapter-nav="' + paneIndex + '|1" title="Next chapter">' + icon("chevron-right") + "</button></div></div>" +
@@ -984,6 +988,7 @@ async function prepareBrowseVerses() {
 }
 
 async function loadPane(pane) {
+  if (pane.blank) return;
   updateOfflineVersion(pane);
   const key = referenceKey(pane);
   if (chapterData[key]?.verses?.length) {
@@ -1104,11 +1109,17 @@ function newCanvasTab(paneIndex = state.activePane) {
     showToast("Each reader can have up to three passage tabs.");
     return;
   }
-  const pane = JSON.parse(JSON.stringify(paneAt(paneIndex)));
   const id = "canvas-" + paneIndex + "-tab-" + Date.now();
-  pane.id = id;
-  pane.label = displayReference(pane.reference);
-  pane.scope = "chapter";
+  const pane = {
+    id,
+    label: "New passage",
+    blank: true,
+    reference: { book: "John", chapter: 1, verse: 1 },
+    translation: "NET",
+    scope: "chapter",
+    view: "paragraph",
+    parseEnabled: false
+  };
   canvas.tabs.push(pane);
   canvas.activeTab = id;
   state.activePane = paneIndex;
@@ -1145,6 +1156,7 @@ function syncPartnerPane(sourceIndex, next) {
   const sourcePane = paneAt(sourceIndex);
   readerPaneIndexes().filter((index) => index !== sourceIndex).forEach((targetIndex) => {
     const targetPane = paneAt(targetIndex);
+    targetPane.blank = false;
     targetPane.reference = { ...next };
     targetPane.label = displayReference(next);
     targetPane.scope = targetPane.view === "compare" ? "verse" : sourcePane.scope;
@@ -1158,6 +1170,7 @@ function syncPartnerPane(sourceIndex, next) {
 
 function changePaneReference(paneIndex, next) {
   const pane = paneAt(paneIndex);
+  pane.blank = false;
   pane.reference = next;
   pane.label = displayReference(next);
   pane.scope = "chapter";
@@ -1361,8 +1374,10 @@ app.addEventListener("click", async (event) => {
   if (close) {
     event.stopPropagation();
     const [paneIndex, id] = close.dataset.closeCanvasTab.split("|");
-    const canvas = canvasAt(Number(paneIndex));
+    const index = Number(paneIndex);
+    const canvas = canvasAt(index);
     if (canvas.tabs.length === 1) return showToast("Keep at least one tab open in this canvas.");
+    if (state.panelSettings === index) state.panelSettings = null;
     canvas.tabs = canvas.tabs.filter((tab) => tab.id !== id);
     if (canvas.activeTab === id) canvas.activeTab = canvas.tabs[0].id;
     persist(); render(); loadVisiblePanes(); return;
@@ -1611,7 +1626,7 @@ app.addEventListener("change", (event) => {
   if (control) {
     const pane = activePane();
     if (control === "translation") pane.translation = event.target.value;
-    if (control === "book") { pane.reference.book = event.target.value; pane.reference.chapter = 1; pane.reference.verse = 1; }
+    if (control === "book") { pane.blank = false; pane.reference.book = event.target.value; pane.reference.chapter = 1; pane.reference.verse = 1; }
     if (control === "chapter") { pane.reference.chapter = Number(event.target.value); pane.reference.verse = 1; }
     if (control === "verse") pane.reference.verse = Number(event.target.value);
     pane.label = displayReference(pane.reference);
