@@ -707,7 +707,7 @@ function renderParsePane(canvas, paneIndex) {
   const tabs = hasParsing && hasVariant
     ? '<div class="word-study-tabs" role="tablist" aria-label="Word study"><button class="' + (activeTab === "parsing" ? "active" : "") + '" data-action="word-study-tab" data-pane-index="' + paneIndex + '" data-word-study-tab="parsing" role="tab" aria-selected="' + (activeTab === "parsing") + '">Parsing</button><button class="' + (activeTab === "variant" ? "active" : "") + '" data-action="word-study-tab" data-pane-index="' + paneIndex + '" data-word-study-tab="variant" role="tab" aria-selected="' + (activeTab === "variant") + '">Variant</button></div>'
     : "";
-  const header = '<header class="parse-pane-header"><div><span class="parse-kicker">' + escapeHtml(kicker) + '</span><strong>' + title + '</strong></div><div class="parse-pane-header-actions">' + tabs + '<button class="format-button" data-action="close-parse-panel" data-pane-index="' + paneIndex + '" title="Restore reader panel">' + icon("x") + '</button></div></header>';
+  const header = '<header class="parse-pane-header"><div class="parse-pane-heading"><span class="parse-kicker">' + escapeHtml(kicker) + '</span><strong>' + title + '</strong></div>' + tabs + '<button class="format-button close-study-panel" data-action="close-parse-panel" data-pane-index="' + paneIndex + '" title="Restore reader panel">' + icon("x") + '</button></header>';
   if (activeTab === "variant") return '<article class="' + classes + '">' + header + '<div class="parse-content parse-variant-content">' + variantDetailsMarkup(unit) + '</div></article>';
   const lexicalCredit = data.word.lexical ? " Lexical glosses: Open Scriptures Strong's Dictionaries." : "";
   const lexical = data.word.lexical || {};
