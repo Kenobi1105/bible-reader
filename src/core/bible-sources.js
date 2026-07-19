@@ -48,7 +48,7 @@ function cleanText(value) {
 }
 
 function sblCriticalMarkers(text) {
-  return Array.from(text.matchAll(/[⸀⸁⸂⸃⸄⸅⟦⟧\[\]]/gu)).map((match) => ({
+  return Array.from(text.matchAll(/[\u2E00-\u2E05\u27E6\u27E7\[\]]/gu)).map((match) => ({
     marker: match[0],
     index: match.index
   }));

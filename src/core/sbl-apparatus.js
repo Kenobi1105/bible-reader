@@ -32,12 +32,14 @@ function parseReading(value) {
   return { text: terms.join(" ").trim(), witnesses };
 }
 
-function rangeFromNote(book, note) {
-  const match = note.match(/\+\s+(\d+):(\d+)[–-](\d+):(\d+)/);
+function rangeFromNote(reference, note) {
+  const context = referenceParts(reference);
+  if (!context) return null;
+  const match = note.match(/(?:\+\s+)?(?:(\d+):)?(\d+)[\u2013-](?:(\d+):)?(\d+)(?=\s|$)/);
   if (!match) return null;
   return {
-    start: { book, chapter: Number(match[1]), verse: Number(match[2]) },
-    end: { book, chapter: Number(match[3]), verse: Number(match[4]) }
+    start: { book: context.book, chapter: Number(match[1] || context.chapter), verse: Number(match[2]) },
+    end: { book: context.book, chapter: Number(match[3] || match[1] || context.chapter), verse: Number(match[4]) }
   };
 }
 
@@ -51,7 +53,7 @@ function isWithinRange(reference, range) {
 }
 
 function parseNote(reference, noteText, sequence) {
-  return plainText(noteText).split("•").map((entry) => {
+  return plainText(noteText).split("\u2022").map((entry) => {
     const parts = entry.split("]");
     if (parts.length < 2) return null;
     const left = plainText(parts.shift()).replace(/^\d+(?::\d+)?\s+/, "");
@@ -63,7 +65,8 @@ function parseNote(reference, noteText, sequence) {
       id: "sbl-" + reference.replace(/\s|:|[^\w]/g, "-") + "-" + sequence(),
       reference,
       lemma: current.text,
-      readings: [current, ...alternatives]
+      readings: [current, ...alternatives],
+      range: rangeFromNote(reference, entry)
     };
   }).filter(Boolean);
 }
@@ -87,7 +90,7 @@ function buildBookIndex(book, xml) {
       if (!byReference.has(reference)) byReference.set(reference, []);
       byReference.get(reference).push(unit);
       unitsById.set(unit.id, unit);
-      const range = rangeFromNote(referenceParts(reference)?.book || book, unit.readings.map((reading) => reading.text).join(" "));
+      const range = unit.range || rangeFromNote(reference, unit.readings.map((reading) => reading.text).join(" "));
       if (range) {
         unit.range = range;
         rangeUnits.push(unit);

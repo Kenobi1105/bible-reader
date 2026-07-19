@@ -693,8 +693,8 @@ body.dark .reveal-title { border-color: var(--border); }
 .pane-grid:not(.single) .reader-pane.active-pane { border-color: rgba(196,145,35,.68); box-shadow: 0 0 0 2px rgba(240,208,143,.5), 0 14px 34px rgba(196,145,35,.18); }
 
 @media (min-width: 761px) {
-  .parse-pane { display: flex; align-self: start; max-height: 100%; min-height: 0; flex-direction: column; }
-  .parse-content { max-height: calc(100vh - var(--reader-header-height) - 66px); min-height: 0; }
+  .parse-pane { display: flex; align-self: stretch; height: 100%; min-height: 0; flex-direction: column; }
+  .parse-content { flex: 1 1 auto; max-height: none; min-height: 0; }
 }
 
 @media (max-width: 1050px) {

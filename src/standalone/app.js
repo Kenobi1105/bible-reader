@@ -1,8 +1,8 @@
 import { BOOKS, chapterCount, displayReference, isOldTestament, moveChapter, parseReference } from "../core/references.js";
-import { TRANSLATIONS, getChapter } from "../core/bible-sources.js?v=4";
+import { TRANSLATIONS, getChapter } from "../core/bible-sources.js?v=5";
 import { downloadFile, loadCachedChapter, loadState, saveCachedChapter, saveState } from "../core/storage.js?v=2";
 import { isMorphologyTranslation, loadMorphologyBook, morphologySourceLabel } from "../core/morphology.js";
-import { getSblApparatusUnit, getSblApparatusUnits, loadSblApparatus } from "../core/sbl-apparatus.js?v=2";
+import { getSblApparatusUnit, getSblApparatusUnits, loadSblApparatus } from "../core/sbl-apparatus.js?v=3";
 
 const app = document.querySelector("#app");
 const defaultState = {
@@ -188,7 +188,7 @@ function duplicateReaderCanvas(sourceIndex, targetIndex) {
 }
 
 function chapterKey(reference, translationId) {
-  const cacheVersion = translationId === "SBLGNT" ? "@markers-1" : "";
+  const cacheVersion = translationId === "SBLGNT" ? "@markers-2" : "";
   return translationId + cacheVersion + "|" + displayReference(reference);
 }
 
@@ -499,7 +499,7 @@ function sblApparatusMarkup(verse, reference, pane, translationId, morphologyWor
   const units = getSblApparatusUnits(reference);
   const ranges = apparatusRanges(text, reference);
   const wordTargets = [...ranges, ...units.filter((unit) => unit.range).map((unit) => ({ ...unit, start: 0, end: text.length }))];
-  const sourceMarkers = verse.markers?.length ? verse.markers : Array.from(text.matchAll(/[⸀⸁⸂⸃⸄⸅⟦⟧\[\]]/gu)).map((match) => ({ marker: match[0], index: match.index }));
+  const sourceMarkers = verse.markers?.length ? verse.markers : Array.from(text.matchAll(/[\u2E00-\u2E05\u27E6\u27E7\[\]]/gu)).map((match) => ({ marker: match[0], index: match.index }));
   const markers = sourceMarkers.map((marker) => ({
     start: marker.index,
     end: marker.index + marker.marker.length,
