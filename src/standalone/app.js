@@ -77,6 +77,7 @@ state.selectedVerse = null;
 state.paneSync = Boolean(state.paneSync);
 state.panelSettings = Number.isInteger(state.panelSettings) ? state.panelSettings : null;
 state.variantUnit = typeof state.variantUnit === "string" ? state.variantUnit : null;
+if (state.studyTab === "variants") state.studyTab = "notes";
 state.mobilePane = Number.isInteger(state.mobilePane) ? state.mobilePane : state.activePane;
 state.bookmarks = (state.bookmarks || []).map((bookmark, index) => ({
   ...bookmark,
@@ -697,6 +698,10 @@ function renderParsePane(canvas, paneIndex) {
   const direction = translation.direction || "ltr";
   const classes = "parse-pane paper-" + state.paper + (state.mobilePane === paneIndex ? " mobile-active" : "");
   if (!data) return '<article class="' + classes + '"><div class="parse-pane-header"><span>Parsing</span><button class="format-button" data-action="close-parse-panel" data-pane-index="' + paneIndex + '" title="Close parsing panel">' + icon("x") + '</button></div><div class="parse-empty">Select a parsed Hebrew or Greek word.</div></article>';
+  if (data.type === "variant") {
+    const unit = getSblApparatusUnit(data.unitId);
+    return '<article class="' + classes + '"><header class="parse-pane-header"><div><span class="parse-kicker">SBLGNT</span><strong>Textual variants</strong></div><button class="format-button" data-action="close-parse-panel" data-pane-index="' + paneIndex + '" title="Restore reader panel">' + icon("x") + '</button></header><div class="parse-content parse-variant-content">' + variantDetailsMarkup(unit) + '</div></article>';
+  }
   const lexicalCredit = data.word.lexical ? " Lexical glosses: Open Scriptures Strong's Dictionaries." : "";
   const lexical = data.word.lexical || {};
   return '<article class="' + classes + '"><header class="parse-pane-header"><div><span class="parse-kicker">' + escapeHtml(data.translation) + '</span><strong>Word parsing</strong></div><button class="format-button" data-action="close-parse-panel" data-pane-index="' + paneIndex + '" title="Restore reader panel">' + icon("x") + '</button></header><div class="parse-content parse-content-' + escapeHtml(data.translation.toLowerCase()) + '" dir="' + direction + '"><section class="parse-word-hero"><p class="parse-reference">' + escapeHtml(data.reference) + '</p><div class="parse-word">' + escapeHtml(cleanParserDisplay(data.word.surface)) + '</div></section><section class="parse-lexical" aria-label="Lexical information"><dl class="parse-details">' + parseLexicalMarkup(data) + '</dl></section><section class="parse-emphasis parse-gloss-section" aria-labelledby="parse-gloss-' + paneIndex + '"><h2 id="parse-gloss-' + paneIndex + '">Gloss</h2><p>' + escapeHtml(lexical.gloss || "Not listed") + '</p></section><section class="parse-parsing-section" aria-labelledby="parse-parsing-' + paneIndex + '"><h2 id="parse-parsing-' + paneIndex + '">Parsing</h2><p class="parse-terms">' + parsingTerms(data.word.description) + '</p></section><footer class="parse-metadata">' + parseMetadataMarkup(data, lexicalCredit) + '</footer></div></article>';
@@ -791,10 +796,9 @@ function witnessMarkup(witnesses) {
   }).join('<span class="witness-separator"> · </span>');
 }
 
-function variantsMarkup() {
-  const unit = getSblApparatusUnit(state.variantUnit);
+function variantDetailsMarkup(unit) {
   if (!unit) {
-    return '<div class="variants-panel variants-empty"><span class="variants-kicker">SBLGNT apparatus</span><h2>Textual variants</h2><p>Select a marked SBLGNT word in the reader to examine the edition-level readings here.</p></div>';
+    return '<section class="parse-variant-details variants-empty"><span class="variants-kicker">SBLGNT apparatus</span><h2>Textual variants</h2><p>No apparatus entry is selected.</p></section>';
   }
   const readings = unit.readings.map((reading) => {
     const current = reading.text === unit.lemma;
@@ -803,7 +807,7 @@ function variantsMarkup() {
   const rangeLabel = unit.range ? unit.range.start.book + " " + unit.range.start.chapter + ":" + unit.range.start.verse + "–" + unit.range.end.chapter + ":" + unit.range.end.verse : "";
   const title = unit.range ? rangeLabel : unit.lemma;
   const intro = unit.range ? "The SBLGNT marks this extended passage as doubtful; its apparatus records the relevant edition-level evidence." : "Readings compared by the SBL Greek New Testament apparatus.";
-  return '<div class="variants-panel"><div class="variants-reference">' + escapeHtml(unit.reference) + '</div><span class="variants-kicker">SBLGNT apparatus</span><h2 class="' + (unit.range ? "variants-range-title" : "lang-greek") + '">' + escapeHtml(title) + '</h2><p class="variants-intro">' + escapeHtml(intro) + '</p><ol class="variants-readings">' + readings + '</ol><footer class="variants-source">SBLGNT apparatus · edition-level comparison</footer></div>';
+  return '<section class="parse-variant-details"><div class="variants-reference">' + escapeHtml(unit.reference) + '</div><span class="variants-kicker">SBLGNT apparatus</span><h2 class="' + (unit.range ? "variants-range-title" : "lang-greek") + '">' + escapeHtml(title) + '</h2><p class="variants-intro">' + escapeHtml(intro) + '</p><ol class="variants-readings">' + readings + '</ol><footer class="variants-source">SBLGNT apparatus · edition-level comparison</footer></section>';
 }
 
 function openVariantStudy(target) {
@@ -815,20 +819,15 @@ function openVariantStudy(target) {
     state.mobilePane = state.activePane;
     markPaneUsed(state.activePane);
   }
-  state.variantUnit = unit.id;
-  state.studyTab = "variants";
-  studyEntrance = !state.studyOpen;
-  state.studyOpen = true;
-  persist();
-  render();
+  state.studyOpen = false;
+  openParsingSurface({ type: "variant", unitId: unit.id, translation: "SBLGNT", reference: unit.reference });
 }
 
 function renderStudyPanel(drawer = false) {
   return '<aside class="study-panel' + (drawer ? " study-drawer" : "") + '">' + (drawer ? '<button class="study-drawer-close" data-action="toggle-study" title="Close study tools">' + icon("x") + "</button>" : "") + '<div class="study-tabs">' +
     '<button data-study-tab="notes" class="' + (state.studyTab === "notes" ? "active" : "") + '">Notes</button>' +
     '<button data-study-tab="bookmarks" class="' + (state.studyTab === "bookmarks" ? "active" : "") + '">Bookmarks</button>' +
-    '<button data-study-tab="variants" class="' + (state.studyTab === "variants" ? "active" : "") + '">Variants</button>' +
-  "</div>" + (state.studyTab === "notes" ? noteMarkup() : state.studyTab === "bookmarks" ? bookmarksMarkup() : variantsMarkup()) + "</aside>";
+  "</div>" + (state.studyTab === "bookmarks" ? bookmarksMarkup() : noteMarkup()) + "</aside>";
 }
 
 function renderSettings() {
@@ -1248,15 +1247,16 @@ function loadVerseInAdjacentCompare(sourceIndex, reference) {
   return true;
 }
 
-function openParsingPanel(target) {
-  const translation = target.dataset.morphTranslation;
-  const book = target.dataset.morphBook;
-  const reference = target.dataset.morphReference;
-  const index = Number(target.dataset.morphWord);
-  const parsed = parseReference(reference);
-  const words = morphologyData[morphologyKey(translation, book)]?.verses?.[parsed?.chapter + ":" + parsed?.verse];
-  const word = words?.[index];
-  if (!parsed || !word) return;
+function parseReturnState() {
+  return {
+    layout: state.layout,
+    activePane: state.activePane,
+    mobilePane: state.mobilePane,
+    twoPanelRatio: state.twoPanelRatio
+  };
+}
+
+function reserveParsingPane() {
   let parseIndex = visiblePaneIndexes().find((paneIndex) => canvasAt(paneIndex).mode === "parse");
   if (parseIndex === undefined) {
     if (state.layout === 1) {
@@ -1269,9 +1269,16 @@ function openParsingPanel(target) {
       parseIndex = candidates.sort((left, right) => (canvasAt(left).lastUsed || 0) - (canvasAt(right).lastUsed || 0))[0] ?? state.activePane;
     }
   }
+  return parseIndex;
+}
+
+function openParsingSurface(data) {
+  const previousState = parseReturnState();
+  const parseIndex = reserveParsingPane();
   const canvas = canvasAt(parseIndex);
+  if (canvas.mode !== "parse") canvas.parseReturn = previousState;
   canvas.mode = "parse";
-  canvas.parseData = { translation, book, reference, word };
+  canvas.parseData = data;
   if (state.layout === 2) state.twoPanelRatio = .66;
   moveParseToRightmost();
   state.panelSettings = null;
@@ -1280,15 +1287,30 @@ function openParsingPanel(target) {
   render();
 }
 
+function openParsingPanel(target) {
+  const translation = target.dataset.morphTranslation;
+  const book = target.dataset.morphBook;
+  const reference = target.dataset.morphReference;
+  const index = Number(target.dataset.morphWord);
+  const parsed = parseReference(reference);
+  const words = morphologyData[morphologyKey(translation, book)]?.verses?.[parsed?.chapter + ":" + parsed?.verse];
+  const word = words?.[index];
+  if (!parsed || !word) return;
+  openParsingSurface({ translation, book, reference, word });
+}
+
 function closeParsingPanel(paneIndex) {
-  moveParseToRightmost();
-  paneIndex = state.layout - 1;
+  if (canvasAt(paneIndex)?.mode !== "parse") paneIndex = visiblePaneIndexes().find((index) => canvasAt(index).mode === "parse");
+  if (paneIndex === undefined) return;
   const canvas = canvasAt(paneIndex);
+  const restore = canvas.parseReturn;
   canvas.mode = "reader";
   delete canvas.parseData;
-  if (paneIndex === state.layout - 1) state.layout = Math.max(1, state.layout - 1);
-  state.activePane = activeReaderIndex();
-  state.mobilePane = state.activePane;
+  delete canvas.parseReturn;
+  state.layout = restore?.layout ?? Math.max(1, state.layout - 1);
+  if (restore?.twoPanelRatio) state.twoPanelRatio = restore.twoPanelRatio;
+  state.activePane = Number.isInteger(restore?.activePane) && isReaderCanvas(restore.activePane) ? restore.activePane : activeReaderIndex();
+  state.mobilePane = Number.isInteger(restore?.mobilePane) && visiblePaneIndexes().includes(restore.mobilePane) ? restore.mobilePane : state.activePane;
   persist();
   render();
   loadVisiblePanes();
