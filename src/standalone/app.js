@@ -698,13 +698,20 @@ function renderParsePane(canvas, paneIndex) {
   const direction = translation.direction || "ltr";
   const classes = "parse-pane paper-" + state.paper + (state.mobilePane === paneIndex ? " mobile-active" : "");
   if (!data) return '<article class="' + classes + '"><div class="parse-pane-header"><span>Parsing</span><button class="format-button" data-action="close-parse-panel" data-pane-index="' + paneIndex + '" title="Close parsing panel">' + icon("x") + '</button></div><div class="parse-empty">Select a parsed Hebrew or Greek word.</div></article>';
-  if (data.type === "variant") {
-    const unit = getSblApparatusUnit(data.unitId);
-    return '<article class="' + classes + '"><header class="parse-pane-header"><div><span class="parse-kicker">SBLGNT</span><strong>Textual variants</strong></div><button class="format-button" data-action="close-parse-panel" data-pane-index="' + paneIndex + '" title="Restore reader panel">' + icon("x") + '</button></header><div class="parse-content parse-variant-content">' + variantDetailsMarkup(unit) + '</div></article>';
-  }
+  const unit = getSblApparatusUnit(data.variantId || data.unitId);
+  const hasParsing = Boolean(data.word);
+  const hasVariant = Boolean(unit);
+  const activeTab = data.studyTab === "variant" && hasVariant ? "variant" : hasParsing ? "parsing" : "variant";
+  const title = hasParsing && hasVariant ? "Word study" : hasVariant ? "Textual variants" : "Word parsing";
+  const kicker = activeTab === "variant" ? "SBLGNT" : data.translation;
+  const tabs = hasParsing && hasVariant
+    ? '<div class="word-study-tabs" role="tablist" aria-label="Word study"><button class="' + (activeTab === "parsing" ? "active" : "") + '" data-action="word-study-tab" data-pane-index="' + paneIndex + '" data-word-study-tab="parsing" role="tab" aria-selected="' + (activeTab === "parsing") + '">Parsing</button><button class="' + (activeTab === "variant" ? "active" : "") + '" data-action="word-study-tab" data-pane-index="' + paneIndex + '" data-word-study-tab="variant" role="tab" aria-selected="' + (activeTab === "variant") + '">Variant</button></div>'
+    : "";
+  const header = '<header class="parse-pane-header"><div><span class="parse-kicker">' + escapeHtml(kicker) + '</span><strong>' + title + '</strong></div><div class="parse-pane-header-actions">' + tabs + '<button class="format-button" data-action="close-parse-panel" data-pane-index="' + paneIndex + '" title="Restore reader panel">' + icon("x") + '</button></div></header>';
+  if (activeTab === "variant") return '<article class="' + classes + '">' + header + '<div class="parse-content parse-variant-content">' + variantDetailsMarkup(unit) + '</div></article>';
   const lexicalCredit = data.word.lexical ? " Lexical glosses: Open Scriptures Strong's Dictionaries." : "";
   const lexical = data.word.lexical || {};
-  return '<article class="' + classes + '"><header class="parse-pane-header"><div><span class="parse-kicker">' + escapeHtml(data.translation) + '</span><strong>Word parsing</strong></div><button class="format-button" data-action="close-parse-panel" data-pane-index="' + paneIndex + '" title="Restore reader panel">' + icon("x") + '</button></header><div class="parse-content parse-content-' + escapeHtml(data.translation.toLowerCase()) + '" dir="' + direction + '"><section class="parse-word-hero"><p class="parse-reference">' + escapeHtml(data.reference) + '</p><div class="parse-word">' + escapeHtml(cleanParserDisplay(data.word.surface)) + '</div></section><section class="parse-lexical" aria-label="Lexical information"><dl class="parse-details">' + parseLexicalMarkup(data) + '</dl></section><section class="parse-emphasis parse-gloss-section" aria-labelledby="parse-gloss-' + paneIndex + '"><h2 id="parse-gloss-' + paneIndex + '">Gloss</h2><p>' + escapeHtml(lexical.gloss || "Not listed") + '</p></section><section class="parse-parsing-section" aria-labelledby="parse-parsing-' + paneIndex + '"><h2 id="parse-parsing-' + paneIndex + '">Parsing</h2><p class="parse-terms">' + parsingTerms(data.word.description) + '</p></section><footer class="parse-metadata">' + parseMetadataMarkup(data, lexicalCredit) + '</footer></div></article>';
+  return '<article class="' + classes + '">' + header + '<div class="parse-content parse-content-' + escapeHtml(data.translation.toLowerCase()) + '" dir="' + direction + '"><section class="parse-word-hero"><p class="parse-reference">' + escapeHtml(data.reference) + '</p><div class="parse-word">' + escapeHtml(cleanParserDisplay(data.word.surface)) + '</div></section><section class="parse-lexical" aria-label="Lexical information"><dl class="parse-details">' + parseLexicalMarkup(data) + '</dl></section><section class="parse-emphasis parse-gloss-section" aria-labelledby="parse-gloss-' + paneIndex + '"><h2 id="parse-gloss-' + paneIndex + '">Gloss</h2><p>' + escapeHtml(lexical.gloss || "Not listed") + '</p></section><section class="parse-parsing-section" aria-labelledby="parse-parsing-' + paneIndex + '"><h2 id="parse-parsing-' + paneIndex + '">Parsing</h2><p class="parse-terms">' + parsingTerms(data.word.description) + '</p></section><footer class="parse-metadata">' + parseMetadataMarkup(data, lexicalCredit) + '</footer></div></article>';
 }
 
 function htmlToMarkdown(html) {
@@ -820,7 +827,7 @@ function openVariantStudy(target) {
     markPaneUsed(state.activePane);
   }
   state.studyOpen = false;
-  openParsingSurface({ type: "variant", unitId: unit.id, translation: "SBLGNT", reference: unit.reference });
+  openParsingSurface({ type: "variant", unitId: unit.id, translation: "SBLGNT", reference: unit.reference, studyTab: "variant" });
 }
 
 function renderStudyPanel(drawer = false) {
@@ -1287,7 +1294,7 @@ function openParsingSurface(data) {
   render();
 }
 
-function openParsingPanel(target) {
+function openParsingPanel(target, variantId = "") {
   const translation = target.dataset.morphTranslation;
   const book = target.dataset.morphBook;
   const reference = target.dataset.morphReference;
@@ -1296,7 +1303,7 @@ function openParsingPanel(target) {
   const words = morphologyData[morphologyKey(translation, book)]?.verses?.[parsed?.chapter + ":" + parsed?.verse];
   const word = words?.[index];
   if (!parsed || !word) return;
-  openParsingSurface({ translation, book, reference, word });
+  openParsingSurface({ translation, book, reference, word, variantId, studyTab: "parsing" });
 }
 
 function closeParsingPanel(paneIndex) {
@@ -1383,15 +1390,15 @@ app.addEventListener("click", async (event) => {
   const selectionCleared = !formatControl && !clickedVerse && !insideVersePopover && clearVerseSelection();
   if (state.navigatorOpen && !insidePicker && !pickerTrigger) state.navigatorOpen = false;
   if (formatControl) return;
-  if (apparatusAnchor) return openVariantStudy(apparatusAnchor);
   if (morphWord) {
     const sourcePane = morphWord.closest("[data-activate-pane]");
     if (sourcePane) {
       state.activePane = Number(sourcePane.dataset.activatePane);
       markPaneUsed(state.activePane);
     }
-    return openParsingPanel(morphWord);
+    return openParsingPanel(morphWord, morphWord.closest("[data-apparatus-id]")?.dataset.apparatusId || "");
   }
+  if (apparatusAnchor) return openVariantStudy(apparatusAnchor);
   const close = event.target.closest("[data-close-canvas-tab]");
   if (close) {
     event.stopPropagation();
@@ -1564,6 +1571,12 @@ app.addEventListener("click", async (event) => {
   }
   if (action === "toggle-study") { studyEntrance = !state.studyOpen; state.studyOpen = !state.studyOpen; persist(); render(); return; }
   if (action === "close-parse-panel") return closeParsingPanel(Number(actionTarget.dataset.paneIndex));
+  if (action === "word-study-tab") {
+    const canvas = canvasAt(Number(actionTarget.dataset.paneIndex));
+    if (!canvas?.parseData) return;
+    canvas.parseData.studyTab = actionTarget.dataset.wordStudyTab;
+    persist(); render(); return;
+  }
   if (action === "settings") return openSettings(actionTarget);
   if (action === "dark-mode") { state.dark = !state.dark; persist(); render(); return; }
   if (action === "cycle-compare-cuv") {
@@ -1830,9 +1843,11 @@ document.addEventListener("keydown", (event) => {
 });
 
 app.addEventListener("keydown", (event) => {
+  const morphWord = event.target.closest?.("[data-morph-word]");
   const apparatusAnchor = event.target.closest?.("[data-apparatus-id]");
-  if (!apparatusAnchor || !["Enter", " "].includes(event.key)) return;
+  if ((!morphWord && !apparatusAnchor) || !["Enter", " "].includes(event.key)) return;
   event.preventDefault();
+  if (morphWord) return openParsingPanel(morphWord, morphWord.closest("[data-apparatus-id]")?.dataset.apparatusId || "");
   openVariantStudy(apparatusAnchor);
 });
 
