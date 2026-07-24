@@ -1,6 +1,6 @@
 import { BOOKS, chapterCount, displayReference, isOldTestament, moveChapter, parseReference } from "../core/references.js";
 import { TRANSLATIONS, getChapter } from "../core/bible-sources.js?v=5";
-import { downloadFile, loadCachedChapter, loadState, saveCachedChapter, saveState } from "../core/storage.js?v=2";
+import { downloadFile, loadCachedChapter, loadState, removeCachedChapter, saveCachedChapter, saveState } from "../core/storage.js?v=3";
 import { isMorphologyTranslation, loadMorphologyBook, morphologySourceLabel } from "../core/morphology.js";
 import { getSblApparatusUnit, getSblApparatusUnits, loadSblApparatus } from "../core/sbl-apparatus.js?v=3";
 
@@ -647,8 +647,10 @@ function renderPane(pane, paneIndex) {
       '<h1 class="chapter-title">' + escapeHtml(pane.reference.book) + " " + pane.reference.chapter + '</h1><p class="pane-meta">' + escapeHtml(displayTranslation.name) + " · " + escapeHtml(displayTranslation.language) + "</p></div>" +
       '<button class="chapter-arrow" data-chapter-nav="' + paneIndex + '|1" title="Next chapter">' + icon("chevron-right") + "</button></div></div>" +
     contextControl + versesHtml +
-    '<div class="source-status ' + (result?.error ? "warning" : "") + '">' + icon(result?.error ? "circle-alert" : "cloud-check") +
-      "<span>" + escapeHtml(morphologyStatus(pane) || (pane.loading ? "Loading " + translation.label + " while keeping the current text visible..." : result?.message || "Loading chapter...")) + "</span></div>" +
+    '<a class="source-status ' + (result?.error ? "warning" : "") + (result?.licenseUrl ? " source-link" : "") + '"' +
+      (result?.licenseUrl ? ' href="' + escapeHtml(result.licenseUrl) + '" target="_blank" rel="noreferrer"' : "") +
+      (result?.attribution ? ' title="' + escapeHtml(result.attribution) + '"' : "") + ">" + icon(result?.error ? "circle-alert" : "cloud-check") +
+      "<span>" + escapeHtml(morphologyStatus(pane) || (pane.loading ? "Loading " + translation.label + " while keeping the current text visible..." : result?.message || "Loading chapter...")) + "</span></a>" +
   "</article>";
 }
 
@@ -947,14 +949,16 @@ function showReaderTooltip(target) {
 async function loadChapterData(reference, translationId) {
   const key = chapterKey(reference, translationId);
   if (chapterData[key]?.verses?.length) return chapterData[key];
-  const cached = await loadCachedChapter(key);
+  const cacheable = TRANSLATIONS[translationId]?.cacheable !== false;
+  if (!cacheable) removeCachedChapter(key);
+  const cached = cacheable ? await loadCachedChapter(key) : null;
   if (cached?.verses?.length) {
     chapterData[key] = cached;
     return cached;
   }
   const result = await getChapter(reference, translationId);
   chapterData[key] = result;
-  if (result.verses?.length && translationId !== "NET") saveCachedChapter(key, result);
+  if (result.verses?.length && result.cacheable) saveCachedChapter(key, result);
   return result;
 }
 

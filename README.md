@@ -14,10 +14,17 @@ A standalone Bible reading workspace designed for original-language reading, par
 
 ## Bible text sources
 
-- NET uses the official NET Bible web service and must comply with its copyright terms: https://labs.bible.org/api_web_service
-- WLC and LXX are configured through the GetBible API, which is sourced from CrossWire modules: https://getbible.life/docs
-- SBLGNT loads from the public Faithlife source repository and is licensed CC BY 4.0. Keep the required attribution with every public release: https://github.com/LogosBible/SBLGNT
-- CUV Simplified and Traditional load through GetBible. The source layer also supports approved local JSON files when offline bundling is wanted; confirm the license and required attribution before adding them to the public repository.
+The app fetches texts and language data from the relevant upstream services. Each reader footer is a link to that source's licence or terms, and the complete release record is in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+- NET is fetched on demand from the official NET Bible service and is never cached or bundled by this app.
+- SBLGNT is fetched from the Faithlife source repository under CC BY 4.0; its required attribution remains visible in the reader.
+- WLC is obtained through GetBible/CrossWire and is listed by CrossWire as public domain.
+- CUV Simplified and Traditional are fetched through GetBible, whose listings identify the editions as public domain.
+- The current LXX source is fetched through GetBible. Its listing permits free non-commercial distribution, so this build never caches or bundles it. Do not use that source in a commercial release without an additional rights review or a differently licensed replacement.
+
+## Licensing and release checklist
+
+Before a public release, retain `THIRD_PARTY_NOTICES.md`, preserve the in-app source attributions, and confirm any new text or data file against its upstream terms. Do not add NET or LXX JSON files to `public/data`. Keep the source attribution in place when modifying or redistributing the Hebrew and Greek morphology features.
 
 ## Run locally
 

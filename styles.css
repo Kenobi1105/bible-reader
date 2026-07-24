@@ -100,6 +100,8 @@ button { color: inherit; }
 .verse.highlight-violet { background: #c7b4d8b0; }
 .verse-spacer { margin-right: 5px; }
 .source-status { display: flex; align-items: center; gap: 7px; padding: 12px 26px; color: var(--muted); font-size: 11px; border-top: 1px solid rgba(130,100,70,.15); }
+.source-status.source-link { text-decoration: none; cursor: pointer; }
+.source-status.source-link:hover span { color: var(--plum); text-decoration: underline; text-underline-offset: 2px; }
 .source-status i { width: 14px; color: var(--sage); }
 .source-status.warning i { color: var(--accent); }
 

@@ -53,6 +53,20 @@ export async function saveCachedChapter(key, value) {
   }
 }
 
+export async function removeCachedChapter(key) {
+  try {
+    const database = await openChapterCache();
+    if (!database) return;
+    await new Promise((resolve, reject) => {
+      const request = database.transaction(CHAPTER_STORE, "readwrite").objectStore(CHAPTER_STORE).delete(key);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  } catch {
+    // The reader remains usable when browser storage is unavailable.
+  }
+}
+
 export function downloadFile(name, contents, mime = "text/plain;charset=utf-8") {
   const url = URL.createObjectURL(new Blob([contents], { type: mime }));
   const anchor = document.createElement("a");

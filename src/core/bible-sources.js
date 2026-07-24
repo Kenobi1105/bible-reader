@@ -9,6 +9,19 @@ export const TRANSLATIONS = {
   LXX: { label: "LXX", name: "Septuagint", language: "Ancient Greek", kind: "getbible", code: "lxx", direction: "ltr", script: "greek" }
 };
 
+const SOURCE_POLICIES = {
+  NET: { cacheable: false, attribution: "NET Bible (R) (c) 1996, 2019 Biblical Studies Press, L.L.C. Online use subject to the NET Bible terms.", licenseUrl: "https://thebible.org/gt/notices/net.html" },
+  CUVS: { cacheable: true, attribution: "Chinese Union Version Simplified - Public Domain listing - FHL / GetBible.", licenseUrl: "https://getbible.life/cus/" },
+  CUVT: { cacheable: true, attribution: "Chinese Union Version Traditional - Public Domain listing - FHL / GetBible.", licenseUrl: "https://getbible.life/cut/" },
+  SBLGNT: { cacheable: true, attribution: "SBL Greek New Testament - CC BY 4.0 - Society of Biblical Literature and Logos Bible Software.", licenseUrl: "https://www.sblgnt.com/license/" },
+  WLC: { cacheable: true, attribution: "Westminster Leningrad Codex - Public Domain - CrossWire / GetBible.", licenseUrl: "https://www.crosswire.org/sword/copyright/ModInfoCopyright.jsp?modName=WLC" },
+  LXX: { cacheable: false, attribution: "OT LXX Accented - CCAT / GetBible - free non-commercial distribution only.", licenseUrl: "https://getbible.life/lxx/" }
+};
+
+Object.entries(SOURCE_POLICIES).forEach(([translationId, sourcePolicy]) => {
+  Object.assign(TRANSLATIONS[translationId], sourcePolicy);
+});
+
 function chapterFromGetBible(payload, reference) {
   const chapter = payload?.book?.chapters?.[reference.chapter]
     || payload?.chapters?.[reference.chapter]
@@ -123,6 +136,7 @@ async function fetchLocal(reference, translation) {
 
 export async function getChapter(reference, translationId) {
   const translation = TRANSLATIONS[translationId];
+  const sourcePolicy = SOURCE_POLICIES[translationId] || {};
   try {
     let verses;
     if (translation.kind === "net") verses = await fetchNet(reference);
@@ -133,11 +147,21 @@ export async function getChapter(reference, translationId) {
     if (translation.kind === "net") message = "Loaded from the official NET Bible API.";
     if (translation.kind === "getbible") message = "Loaded through GetBible / CrossWire.";
     if (translation.kind === "sblgnt") message = "SBLGNT · CC BY 4.0 · Faithlife / SBL.";
-    return { verses, online: translation.kind !== "local", message };
+    return {
+      verses,
+      online: translation.kind !== "local",
+      cacheable: sourcePolicy.cacheable !== false,
+      message: sourcePolicy.attribution || message,
+      attribution: sourcePolicy.attribution,
+      licenseUrl: sourcePolicy.licenseUrl
+    };
   } catch (error) {
     return {
       verses: [],
       online: translation.kind !== "local",
+      cacheable: sourcePolicy.cacheable !== false,
+      attribution: sourcePolicy.attribution,
+      licenseUrl: sourcePolicy.licenseUrl,
       message: error.message,
       error: true
     };
