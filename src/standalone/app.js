@@ -1,7 +1,7 @@
 import { BOOKS, chapterCount, displayReference, isOldTestament, moveChapter, parseReference } from "../core/references.js";
 import { TRANSLATIONS, getChapter } from "../core/bible-sources.js?v=5";
 import { downloadFile, loadCachedChapter, loadState, removeCachedChapter, saveCachedChapter, saveState } from "../core/storage.js?v=3";
-import { findWordOccurrences, isMorphologyTranslation, loadMorphologyBook, morphologySourceLabel } from "../core/morphology.js?v=2";
+import { findWordOccurrences, isMorphologyTranslation, loadMorphologyBook, morphologySourceLabel } from "../core/morphology.js?v=3";
 import { getSblApparatusUnit, getSblApparatusUnits, loadSblApparatus } from "../core/sbl-apparatus.js?v=3";
 
 const app = document.querySelector("#app");
@@ -274,6 +274,18 @@ function tripleTrackWeight(ratio) {
   return Math.round((ratio / remainder) * 1000) / 1000 + "fr";
 }
 
+function resetPanelSizing(kind) {
+  if (kind === "single") state.singlePanelWidth = 900;
+  if (kind === "split") state.twoPanelRatio = .5;
+  if (kind.startsWith("triple-")) {
+    state.triplePanelFirstRatio = 1 / 3;
+    state.triplePanelSecondRatio = 1 / 3;
+  }
+  persist();
+  render();
+  showToast("Panel sizes reset.");
+}
+
 function revealArrivalIfReady(pane, key) {
   const paneIndex = state.canvases.findIndex((canvas) => canvas.tabs.some((tab) => tab.id === pane.id));
   const arrival = pendingArrivals.get(paneIndex);
@@ -348,7 +360,7 @@ function renderCanvasTabs(paneIndex) {
   const pane = paneAt(paneIndex);
   const tabLimitReached = canvas.tabs.length >= MAX_TABS_PER_PANEL;
   const parseControl = displayedMorphologyIds(pane).length
-    ? '<button class="word-study-toggle' + (pane.parseEnabled ? " active" : "") + '" data-action="toggle-word-study" data-pane-index="' + paneIndex + '" title="Turn Word Study on, then click a Hebrew or Greek word"><span>' + icon("languages") + '</span>Word study</button>'
+    ? '<button class="word-study-toggle' + (pane.parseEnabled ? " active" : "") + '" data-action="toggle-word-study" data-pane-index="' + paneIndex + '" title="Turn Word Study on, then click a Hebrew or Greek word"><span class="word-study-mark" aria-hidden="true">אα</span>Word study</button>'
     : "";
   return '<div class="canvas-tabs">' + canvas.tabs.map((item) =>
     '<button class="canvas-tab ' + (item.id === canvas.activeTab ? "active" : "") + '" data-canvas-tab="' + paneIndex + "|" + item.id + '">' +
@@ -1850,16 +1862,22 @@ app.addEventListener("mouseup", (event) => {
 app.addEventListener("pointerdown", (event) => {
   const handle = event.target.closest("[data-pane-resizer]");
   if (!handle || window.innerWidth <= 760) return;
+  if (event.detail >= 2) {
+    event.preventDefault();
+    resetPanelSizing(handle.dataset.paneResizer);
+    return;
+  }
   const grid = handle.closest(".pane-grid");
   if (!grid) return;
   event.preventDefault();
-  resizeSession = { kind: handle.dataset.paneResizer, grid, startX: event.clientX, startWidth: state.singlePanelWidth, startRatio: state.twoPanelRatio, startTripleFirstRatio: state.triplePanelFirstRatio, startTripleSecondRatio: state.triplePanelSecondRatio };
+  resizeSession = { kind: handle.dataset.paneResizer, grid, moved: false, startX: event.clientX, startWidth: state.singlePanelWidth, startRatio: state.twoPanelRatio, startTripleFirstRatio: state.triplePanelFirstRatio, startTripleSecondRatio: state.triplePanelSecondRatio };
   handle.setPointerCapture?.(event.pointerId);
   document.body.classList.add("resizing-panels");
 });
 
 window.addEventListener("pointermove", (event) => {
   if (!resizeSession) return;
+  resizeSession.moved ||= Math.abs(event.clientX - resizeSession.startX) > 1;
   const readingArea = resizeSession.grid.closest(".reading-area");
   if (resizeSession.kind === "single") {
     const maximum = Math.min(1300, (readingArea?.getBoundingClientRect().width || window.innerWidth) - 34);
@@ -1869,9 +1887,9 @@ window.addEventListener("pointermove", (event) => {
   }
   const rect = resizeSession.grid.getBoundingClientRect();
   const triple = resizeSession.kind.startsWith("triple-");
-  const available = Math.max(1, rect.width - (triple ? 12 : 14));
+  const available = Math.max(1, rect.width - (triple ? 28 : 14));
   if (triple) {
-    const minimum = 260;
+    const minimum = 320;
     const firstWidth = state.triplePanelFirstRatio * available;
     if (resizeSession.kind === "triple-first") {
       const secondWidth = state.triplePanelSecondRatio * available;
@@ -1894,8 +1912,10 @@ window.addEventListener("pointermove", (event) => {
 
 window.addEventListener("pointerup", () => {
   if (!resizeSession) return;
+  const moved = resizeSession.moved;
   resizeSession = null;
   document.body.classList.remove("resizing-panels");
+  if (!moved) return;
   persist();
   render();
 });
@@ -1904,15 +1924,7 @@ app.addEventListener("dblclick", (event) => {
   const handle = event.target.closest("[data-pane-resizer]");
   if (!handle) return;
   event.preventDefault();
-  if (handle.dataset.paneResizer === "single") state.singlePanelWidth = 900;
-  if (handle.dataset.paneResizer === "split") state.twoPanelRatio = .5;
-  if (handle.dataset.paneResizer.startsWith("triple-")) {
-    state.triplePanelFirstRatio = 1 / 3;
-    state.triplePanelSecondRatio = 1 / 3;
-  }
-  persist();
-  render();
-  showToast("Panel sizes reset.");
+  resetPanelSizing(handle.dataset.paneResizer);
 });
 
 window.addEventListener("resize", () => { hideReaderTooltip(); syncMobileReaderFrame(); });
