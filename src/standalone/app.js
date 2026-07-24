@@ -17,6 +17,8 @@ const defaultState = {
   layout: 1,
   singlePanelWidth: 900,
   twoPanelRatio: 0.5,
+  triplePanelFirstRatio: 1 / 3,
+  triplePanelSecondRatio: 1 / 3,
   paneSync: false,
   studyOpen: false,
   navigatorOpen: false,
@@ -62,6 +64,12 @@ state.canvases.forEach((canvas) => { canvas.mode ||= "reader"; canvas.lastUsed |
 state.layout = Math.min(3, Math.max(1, Number(state.layout) || 1));
 state.singlePanelWidth = Math.min(1300, Math.max(460, Number(state.singlePanelWidth) || 900));
 state.twoPanelRatio = Math.min(.72, Math.max(.28, Number(state.twoPanelRatio) || .5));
+state.triplePanelFirstRatio = Math.min(.56, Math.max(.22, Number(state.triplePanelFirstRatio) || (1 / 3)));
+state.triplePanelSecondRatio = Math.min(.56, Math.max(.22, Number(state.triplePanelSecondRatio) || (1 / 3)));
+if (state.triplePanelFirstRatio + state.triplePanelSecondRatio > .78) {
+  state.triplePanelFirstRatio = 1 / 3;
+  state.triplePanelSecondRatio = 1 / 3;
+}
 const FONT_SIZES = [12, 14, 16, 18, 20, 22, 24];
 const MAX_TABS_PER_PANEL = 3;
 state.fontSize = FONT_SIZES.includes(Number(state.fontSize)) ? Number(state.fontSize) : 18;
@@ -105,6 +113,7 @@ let apparatusLoading = new Set();
 let apparatusReady = new Set();
 let studyEntrance = false;
 let mobileHeaderObserver = null;
+let pendingPaneScrollRestores = new Map();
 
 function icon(name) {
   return '<i data-lucide="' + name + '"></i>';
@@ -245,6 +254,26 @@ function queueArrival(paneIndex, reference) {
   pendingArrivals.set(paneIndex, displayReference(reference));
 }
 
+function capturePaneScrollPositions() {
+  const positions = {};
+  document.querySelectorAll(".reader-pane[data-activate-pane] .verse-list").forEach((list) => {
+    const pane = list.closest("[data-activate-pane]");
+    if (pane) positions[pane.dataset.activatePane] = list.scrollTop;
+  });
+  return positions;
+}
+
+function queuePaneScrollRestores(positions = {}) {
+  Object.entries(positions).forEach(([paneIndex, scrollTop]) => {
+    if (Number.isFinite(scrollTop) && scrollTop > 0) pendingPaneScrollRestores.set(paneIndex, scrollTop);
+  });
+}
+
+function tripleTrackWeight(ratio) {
+  const remainder = Math.max(.01, 1 - state.triplePanelFirstRatio - state.triplePanelSecondRatio);
+  return Math.round((ratio / remainder) * 1000) / 1000 + "fr";
+}
+
 function revealArrivalIfReady(pane, key) {
   const paneIndex = state.canvases.findIndex((canvas) => canvas.tabs.some((tab) => tab.id === pane.id));
   const arrival = pendingArrivals.get(paneIndex);
@@ -311,7 +340,7 @@ function readerSettingsMarkup(pane, paneIndex) {
     const duplicateOriginal = pane.view === "interlinear" && id === interlinearTranslation(pane.reference);
     return '<option value="' + id + '"' + (id === pane.translation ? " selected" : "") + (unavailable || duplicateOriginal ? " disabled" : "") + ">" + item.label + "</option>";
   }).join("");
-  return '<div class="pane-settings-popover" data-pane-settings="' + paneIndex + '"><label>Version<select class="version-select" data-pane-version="' + paneIndex + '" aria-label="Bible version">' + versionOptions + '</select></label><label>Reading view<select class="reader-view-select" data-pane-view="' + paneIndex + '" aria-label="Reading layout"><option value="paragraph"' + (pane.view === "paragraph" ? " selected" : "") + '>Paragraph</option><option value="lines"' + (pane.view === "lines" ? " selected" : "") + '>One verse per line</option><option value="interlinear"' + (pane.view === "interlinear" ? " selected" : "") + '>Interlinear</option><option value="compare"' + (pane.view === "compare" ? " selected" : "") + (pane.scope !== "verse" ? " disabled" : "") + '>Compare versions</option></select></label></div>';
+  return '<div class="pane-settings-popover" data-pane-settings="' + paneIndex + '"><label>Version<select class="version-select" data-pane-version="' + paneIndex + '" aria-label="Bible version">' + versionOptions + '</select></label><label>Reading view<select class="reader-view-select" data-pane-view="' + paneIndex + '" aria-label="Reading layout"><option value="paragraph"' + (pane.view === "paragraph" ? " selected" : "") + '>Paragraph</option><option value="lines"' + (pane.view === "lines" ? " selected" : "") + '>One verse per line</option><option value="interlinear"' + (pane.view === "interlinear" ? " selected" : "") + '>Interlinear</option></select></label></div>';
 }
 
 function renderCanvasTabs(paneIndex) {
@@ -319,7 +348,7 @@ function renderCanvasTabs(paneIndex) {
   const pane = paneAt(paneIndex);
   const tabLimitReached = canvas.tabs.length >= MAX_TABS_PER_PANEL;
   const parseControl = displayedMorphologyIds(pane).length
-    ? '<label class="parse-toggle canvas-parse-toggle" title="Open word parsing when you click Hebrew or Greek"><input type="checkbox" data-pane-parse="' + paneIndex + '"' + (pane.parseEnabled ? " checked" : "") + '><span>Parse</span></label>'
+    ? '<button class="word-study-toggle' + (pane.parseEnabled ? " active" : "") + '" data-action="toggle-word-study" data-pane-index="' + paneIndex + '" title="Turn Word Study on, then click a Hebrew or Greek word"><span>' + icon("languages") + '</span>Word study</button>'
     : "";
   return '<div class="canvas-tabs">' + canvas.tabs.map((item) =>
     '<button class="canvas-tab ' + (item.id === canvas.activeTab ? "active" : "") + '" data-canvas-tab="' + paneIndex + "|" + item.id + '">' +
@@ -898,11 +927,7 @@ function renderPopover() {
 }
 
 function render() {
-  const paneScrollPositions = {};
-  document.querySelectorAll(".reader-pane[data-activate-pane] .verse-list").forEach((list) => {
-    const pane = list.closest("[data-activate-pane]");
-    if (pane) paneScrollPositions[pane.dataset.activatePane] = list.scrollTop;
-  });
+  const paneScrollPositions = capturePaneScrollPositions();
   setRootTheme();
   const paneIndexes = visiblePaneIndexes();
   const paneGrid = state.layout === 1 ? "single" : state.layout === 2 ? "split" : "triple";
@@ -913,8 +938,8 @@ function render() {
     ? renderPanel(0) + resizer("single")
     : state.layout === 2
       ? renderPanel(0) + resizer("split") + renderPanel(1)
-      : paneIndexes.map(renderPanel).join("");
-  const gridStyle = '--single-panel-width:' + state.singlePanelWidth + 'px;--left-panel-width:' + Math.round(state.twoPanelRatio * 1000) / 10 + '%;';
+      : renderPanel(0) + resizer("triple-first") + renderPanel(1) + resizer("triple-second") + renderPanel(2);
+  const gridStyle = '--single-panel-width:' + state.singlePanelWidth + 'px;--left-panel-width:' + Math.round(state.twoPanelRatio * 1000) / 10 + '%;--triple-first-track:' + tripleTrackWeight(state.triplePanelFirstRatio) + ';--triple-second-track:' + tripleTrackWeight(state.triplePanelSecondRatio) + ';';
   app.innerHTML = '<main class="reader-shell">' + renderWorkspaceHeader() + renderReferenceBrowser() +
     '<div class="desk ' + (state.studyOpen && !studyDrawer ? "study-open" : "") + (studyDrawer ? " study-drawer-open" : "") + (studyEntrance ? " study-entering" : "") + '"><section class="reading-area"><div class="pane-grid ' + paneGrid + (visibleParseIndex() !== undefined ? " has-parse" : "") + '" style="' + gridStyle + '">' +
       gridContents +
@@ -923,8 +948,11 @@ function render() {
   syncMobileReaderFrame();
   document.querySelectorAll(".reader-pane[data-activate-pane] .verse-list").forEach((list) => {
     const pane = list.closest("[data-activate-pane]");
-    const scrollTop = pane ? paneScrollPositions[pane.dataset.activatePane] : null;
+    const paneIndex = pane?.dataset.activatePane;
+    const pendingScrollTop = pendingPaneScrollRestores.get(paneIndex);
+    const scrollTop = pendingScrollTop ?? paneScrollPositions[paneIndex];
     if (Number.isFinite(scrollTop)) list.scrollTop = scrollTop;
+    if (pendingScrollTop !== undefined && list.scrollHeight > list.clientHeight + 1) pendingPaneScrollRestores.delete(paneIndex);
   });
   if (studyEntrance) window.setTimeout(() => { studyEntrance = false; }, 280);
 }
@@ -1287,7 +1315,10 @@ function parseReturnState() {
     layout: state.layout,
     activePane: state.activePane,
     mobilePane: state.mobilePane,
-    twoPanelRatio: state.twoPanelRatio
+    twoPanelRatio: state.twoPanelRatio,
+    triplePanelFirstRatio: state.triplePanelFirstRatio,
+    triplePanelSecondRatio: state.triplePanelSecondRatio,
+    scrollPositions: capturePaneScrollPositions()
   };
 }
 
@@ -1344,6 +1375,9 @@ function closeParsingPanel(paneIndex) {
   delete canvas.parseReturn;
   state.layout = restore?.layout ?? Math.max(1, state.layout - 1);
   if (restore?.twoPanelRatio) state.twoPanelRatio = restore.twoPanelRatio;
+  if (restore?.triplePanelFirstRatio) state.triplePanelFirstRatio = restore.triplePanelFirstRatio;
+  if (restore?.triplePanelSecondRatio) state.triplePanelSecondRatio = restore.triplePanelSecondRatio;
+  queuePaneScrollRestores(restore?.scrollPositions);
   state.activePane = Number.isInteger(restore?.activePane) && isReaderCanvas(restore.activePane) ? restore.activePane : activeReaderIndex();
   state.mobilePane = Number.isInteger(restore?.mobilePane) && visiblePaneIndexes().includes(restore.mobilePane) ? restore.mobilePane : state.activePane;
   persist();
@@ -1588,6 +1622,21 @@ app.addEventListener("click", async (event) => {
   }
   const action = actionTarget.dataset.action;
   if (action === "cycle-layout") return setLayout(state.layout === 3 ? 1 : state.layout + 1);
+  if (action === "toggle-word-study") {
+    const paneIndex = Number(actionTarget.dataset.paneIndex);
+    const pane = paneAt(paneIndex);
+    pane.parseEnabled = !pane.parseEnabled;
+    state.activePane = paneIndex;
+    state.mobilePane = paneIndex;
+    markPaneUsed(paneIndex);
+    persist();
+    render();
+    if (pane.parseEnabled) {
+      ensurePaneMorphology(pane);
+      showToast("Word Study is on. Click a Hebrew or Greek word.");
+    }
+    return;
+  }
   if (action === "toggle-pane-sync") {
     state.paneSync = !state.paneSync;
     if (state.paneSync) syncPartnerPane(activeReaderIndex(), activePane().reference);
@@ -1804,7 +1853,7 @@ app.addEventListener("pointerdown", (event) => {
   const grid = handle.closest(".pane-grid");
   if (!grid) return;
   event.preventDefault();
-  resizeSession = { kind: handle.dataset.paneResizer, grid, startX: event.clientX, startWidth: state.singlePanelWidth, startRatio: state.twoPanelRatio };
+  resizeSession = { kind: handle.dataset.paneResizer, grid, startX: event.clientX, startWidth: state.singlePanelWidth, startRatio: state.twoPanelRatio, startTripleFirstRatio: state.triplePanelFirstRatio, startTripleSecondRatio: state.triplePanelSecondRatio };
   handle.setPointerCapture?.(event.pointerId);
   document.body.classList.add("resizing-panels");
 });
@@ -1819,7 +1868,23 @@ window.addEventListener("pointermove", (event) => {
     return;
   }
   const rect = resizeSession.grid.getBoundingClientRect();
-  const available = Math.max(1, rect.width - 14);
+  const triple = resizeSession.kind.startsWith("triple-");
+  const available = Math.max(1, rect.width - (triple ? 12 : 14));
+  if (triple) {
+    const minimum = 260;
+    const firstWidth = state.triplePanelFirstRatio * available;
+    if (resizeSession.kind === "triple-first") {
+      const secondWidth = state.triplePanelSecondRatio * available;
+      const target = Math.min(available - secondWidth - minimum, Math.max(minimum, event.clientX - rect.left));
+      state.triplePanelFirstRatio = target / available;
+    } else {
+      const target = Math.min(available - firstWidth - minimum, Math.max(minimum, event.clientX - rect.left - firstWidth - 6));
+      state.triplePanelSecondRatio = target / available;
+    }
+    resizeSession.grid.style.setProperty("--triple-first-track", tripleTrackWeight(state.triplePanelFirstRatio));
+    resizeSession.grid.style.setProperty("--triple-second-track", tripleTrackWeight(state.triplePanelSecondRatio));
+    return;
+  }
   const leftMinimum = 360;
   const rightMinimum = canvasAt(1).mode === "parse" ? 310 : 360;
   const leftWidth = Math.min(available - rightMinimum, Math.max(leftMinimum, event.clientX - rect.left));
@@ -1833,6 +1898,21 @@ window.addEventListener("pointerup", () => {
   document.body.classList.remove("resizing-panels");
   persist();
   render();
+});
+
+app.addEventListener("dblclick", (event) => {
+  const handle = event.target.closest("[data-pane-resizer]");
+  if (!handle) return;
+  event.preventDefault();
+  if (handle.dataset.paneResizer === "single") state.singlePanelWidth = 900;
+  if (handle.dataset.paneResizer === "split") state.twoPanelRatio = .5;
+  if (handle.dataset.paneResizer.startsWith("triple-")) {
+    state.triplePanelFirstRatio = 1 / 3;
+    state.triplePanelSecondRatio = 1 / 3;
+  }
+  persist();
+  render();
+  showToast("Panel sizes reset.");
 });
 
 window.addEventListener("resize", () => { hideReaderTooltip(); syncMobileReaderFrame(); });

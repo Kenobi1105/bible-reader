@@ -645,10 +645,15 @@ body.dark .reveal-title { border-color: var(--border); }
 }
 
 /* Three-panel desk, tab settings, and parsing surface */
-.pane-grid.triple { grid-template-columns: repeat(3, minmax(0, 1fr)); max-width: 1800px; margin: 0 auto; }
+.pane-grid.triple { grid-template-columns: minmax(260px, var(--triple-first-track)) 6px minmax(260px, var(--triple-second-track)) 6px minmax(260px, 1fr); max-width: 1800px; margin: 0 auto; }
 .canvas-tabs { position: relative; overflow: visible; }
 .canvas-tab-spacer { flex: 1 1 auto; min-width: 4px; }
 .canvas-parse-toggle { flex: 0 0 auto; margin-left: auto; }
+.word-study-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 32px; margin-left: auto; padding: 0 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--signature); font-family: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+.word-study-toggle span { display: inline-flex; width: 14px; height: 14px; }
+.word-study-toggle svg { width: 14px; height: 14px; }
+.word-study-toggle:hover { border-color: var(--accent); background: var(--surface-muted); }
+.word-study-toggle.active { border-color: var(--accent); background: #fff6e4; color: var(--signature); }
 .pane-settings-popover { position: absolute; z-index: 14; top: calc(100% + 7px); left: 10px; display: grid; grid-template-columns: repeat(2, minmax(118px, 1fr)); gap: 8px; width: min(330px, calc(100vw - 42px)); padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: #fffefe; box-shadow: 0 14px 30px rgba(58,40,49,.16); }
 .pane-settings-popover label { display: grid; gap: 4px; color: var(--muted); font-size: 10px; font-weight: 700; }
 .pane-settings-popover select { width: 100%; min-width: 0; }
@@ -777,7 +782,7 @@ body.resizing-panels, body.resizing-panels * { cursor: col-resize !important; us
 
 @media (max-width: 760px) {
   .pane-grid.single { display: block; width: 100%; }
-  .pane-grid.single .pane-resizer, .pane-grid.split .pane-resizer { display: none; }
+  .pane-grid .pane-resizer { display: none; }
   .pane-grid.split { display: block; }
 }
 

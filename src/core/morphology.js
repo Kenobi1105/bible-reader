@@ -39,7 +39,7 @@ const GREEK_POS = {
 const CASES = { N: "nominative", G: "genitive", D: "dative", A: "accusative", V: "vocative" };
 const NUMBERS = { S: "singular", P: "plural", D: "dual" };
 const GENDERS = { M: "masculine", F: "feminine", N: "neuter" };
-const TENSES = { P: "present", I: "imperfect", F: "future", A: "aorist", R: "perfect", L: "pluperfect" };
+const TENSES = { P: "present", I: "imperfect", F: "future", A: "aorist", X: "perfect", Y: "pluperfect" };
 const VOICES = { A: "active", M: "middle", P: "passive", E: "middle or passive" };
 const MOODS = { I: "indicative", S: "subjunctive", O: "optative", M: "imperative", N: "infinitive", P: "participle" };
 
