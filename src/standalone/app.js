@@ -109,6 +109,7 @@ let multiVerseSelection = [];
 let syncScrollLocked = false;
 let lastSyncedScrollReference = "";
 let resizeSession = null;
+let lastResizerPress = null;
 let apparatusLoading = new Set();
 let apparatusReady = new Set();
 let studyEntrance = false;
@@ -1862,9 +1863,14 @@ app.addEventListener("mouseup", (event) => {
 app.addEventListener("pointerdown", (event) => {
   const handle = event.target.closest("[data-pane-resizer]");
   if (!handle || window.innerWidth <= 760) return;
-  if (event.detail >= 2) {
+  const now = performance.now();
+  const kind = handle.dataset.paneResizer;
+  const isDoublePress = event.pointerType === "mouse" && lastResizerPress && lastResizerPress.kind === kind && now - lastResizerPress.time < 450 && Math.abs(event.clientX - lastResizerPress.x) < 14 && Math.abs(event.clientY - lastResizerPress.y) < 14;
+  lastResizerPress = { kind, time: now, x: event.clientX, y: event.clientY };
+  if (isDoublePress) {
+    lastResizerPress = null;
     event.preventDefault();
-    resetPanelSizing(handle.dataset.paneResizer);
+    resetPanelSizing(kind);
     return;
   }
   const grid = handle.closest(".pane-grid");
@@ -1877,7 +1883,8 @@ app.addEventListener("pointerdown", (event) => {
 
 window.addEventListener("pointermove", (event) => {
   if (!resizeSession) return;
-  resizeSession.moved ||= Math.abs(event.clientX - resizeSession.startX) > 1;
+  resizeSession.moved ||= Math.abs(event.clientX - resizeSession.startX) > 3;
+  if (resizeSession.moved) lastResizerPress = null;
   const readingArea = resizeSession.grid.closest(".reading-area");
   if (resizeSession.kind === "single") {
     const maximum = Math.min(1300, (readingArea?.getBoundingClientRect().width || window.innerWidth) - 34);
@@ -1918,13 +1925,6 @@ window.addEventListener("pointerup", () => {
   if (!moved) return;
   persist();
   render();
-});
-
-app.addEventListener("dblclick", (event) => {
-  const handle = event.target.closest("[data-pane-resizer]");
-  if (!handle) return;
-  event.preventDefault();
-  resetPanelSizing(handle.dataset.paneResizer);
 });
 
 window.addEventListener("resize", () => { hideReaderTooltip(); syncMobileReaderFrame(); });
