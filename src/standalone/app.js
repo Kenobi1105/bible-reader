@@ -181,6 +181,14 @@ function visibleParseIndex() {
   return visiblePaneIndexes().find((index) => canvasAt(index).mode === "parse");
 }
 
+function isPhoneViewport() {
+  return window.innerWidth <= 760;
+}
+
+function activeParseIndex() {
+  return state.canvases.findIndex((canvas) => canvas.mode === "parse");
+}
+
 function moveParseToRightmost() {
   const parseIndex = visibleParseIndex();
   if (parseIndex === undefined) return;
@@ -418,16 +426,17 @@ function renderReferenceBrowser() {
 
 function renderWorkspaceHeader() {
   const reference = activePane().blank ? "" : displayReference(activePane().reference);
-  const visiblePanels = visiblePaneIndexes();
+  const compactLayout = isPhoneViewport() ? 1 : state.layout;
+  const visiblePanels = compactLayout === 1 ? [0] : visiblePaneIndexes();
   return '<header class="workspace-header"><div class="brand compact"><div class="brand-mark">' + icon("book-open") + '</div><div>Scripture Desk</div></div>' +
     '<div class="header-actions"><div class="reference-entry">' + icon("search") +
       '<input id="reference-search" value="' + escapeHtml(reference) + '" aria-label="Find a reference" placeholder="John 3:16" />' +
       '<button class="browse-trigger" data-action="toggle-browser" title="Browse book, chapter, and verse">' + icon("chevron-down") + '<span>Browse</span></button></div>' +
       '<button class="icon-button ' + (state.studyOpen ? "active" : "") + '" data-action="toggle-study" title="Study tools">' + icon("notebook-pen") + "</button>" +
-      '<button class="icon-button ' + (state.layout > 1 ? "active" : "") + '" data-action="cycle-layout" title="Reader layout: ' + state.layout + ' panel' + (state.layout === 1 ? "" : "s") + '">' + icon(state.layout === 1 ? "square" : state.layout === 2 ? "columns-2" : "columns-3") + "</button>" +
-      (state.layout > 1 ? '<button class="icon-button ' + (state.paneSync ? "active" : "") + '" data-action="toggle-pane-sync" title="' + (state.paneSync ? "Unsync reader panes" : "Sync reader panes") + '">' + icon(state.paneSync ? "link-2" : "unlink-2") + "</button>" : "") +
+      '<button class="icon-button layout-cycle-button ' + (compactLayout > 1 ? "active" : "") + '" data-action="cycle-layout" title="Reader layout: ' + compactLayout + ' panel' + (compactLayout === 1 ? "" : "s") + '">' + icon(compactLayout === 1 ? "square" : compactLayout === 2 ? "columns-2" : "columns-3") + "</button>" +
+      (compactLayout > 1 ? '<button class="icon-button ' + (state.paneSync ? "active" : "") + '" data-action="toggle-pane-sync" title="' + (state.paneSync ? "Unsync reader panes" : "Sync reader panes") + '">' + icon(state.paneSync ? "link-2" : "unlink-2") + "</button>" : "") +
       '<button class="icon-button" data-action="settings" title="Reader settings">' + icon("sliders-horizontal") + "</button></div>" +
-    (state.layout > 1 ? '<div class="mobile-pane-switch">' + visiblePanels.map((index) => '<button data-mobile-pane="' + index + '" class="' + (state.mobilePane === index ? "active" : "") + '">' + (isReaderCanvas(index) ? paneAt(index).translation : "Parse") + "</button>").join("") + "</div>" : "") +
+    (compactLayout > 1 ? '<div class="mobile-pane-switch">' + visiblePanels.map((index) => '<button data-mobile-pane="' + index + '" class="' + (state.mobilePane === index ? "active" : "") + '">' + (isReaderCanvas(index) ? paneAt(index).translation : "Parse") + "</button>").join("") + "</div>" : "") +
   "</header>";
 }
 
@@ -782,6 +791,11 @@ function renderParsePane(canvas, paneIndex) {
   return '<article class="' + classes + '">' + header + '<div class="parse-content parse-content-' + escapeHtml(data.translation.toLowerCase()) + '" dir="' + direction + '"><section class="parse-word-hero"><p class="parse-reference">' + escapeHtml(data.reference) + '</p><div class="parse-word">' + escapeHtml(cleanParserDisplay(data.word.surface)) + '</div></section><section class="parse-lexical" aria-label="Lexical information"><dl class="parse-details">' + parseLexicalMarkup(data) + '</dl></section><section class="parse-emphasis parse-gloss-section" aria-labelledby="parse-gloss-' + paneIndex + '"><h2 id="parse-gloss-' + paneIndex + '">Gloss</h2><p>' + escapeHtml(lexical.gloss || "Not listed") + '</p></section><section class="parse-parsing-section" aria-labelledby="parse-parsing-' + paneIndex + '"><h2 id="parse-parsing-' + paneIndex + '">Parsing</h2><p class="parse-terms">' + parsingTerms(data.word.description) + '</p></section>' + occurrenceMarkup(data, paneIndex) + '<footer class="parse-metadata">' + parseMetadataMarkup(data, lexicalCredit) + '</footer></div></article>';
 }
 
+function renderMobileParseSheet(paneIndex) {
+  return '<div class="mobile-parse-scrim" data-action="close-parse-panel" data-pane-index="' + paneIndex + '" aria-hidden="true"></div>' +
+    '<section class="mobile-parse-sheet" role="dialog" aria-modal="true" aria-label="Word study">' + renderParsePane(canvasAt(paneIndex), paneIndex) + '</section>';
+}
+
 function htmlToMarkdown(html) {
   const holder = document.createElement("div");
   holder.innerHTML = html || "";
@@ -942,21 +956,25 @@ function renderPopover() {
 function render() {
   const paneScrollPositions = capturePaneScrollPositions();
   setRootTheme();
-  const paneIndexes = visiblePaneIndexes();
-  const paneGrid = state.layout === 1 ? "single" : state.layout === 2 ? "split" : "triple";
+  const mobileParseIndex = isPhoneViewport() ? activeParseIndex() : -1;
+  const mobileWordStudyOpen = mobileParseIndex !== -1;
+  const paneIndexes = mobileWordStudyOpen ? [activeReaderIndex()] : visiblePaneIndexes();
+  const paneGrid = mobileWordStudyOpen || state.layout === 1 ? "single" : state.layout === 2 ? "split" : "triple";
   const studyDrawer = state.studyOpen && state.layout === 3;
   const renderPanel = (paneIndex) => isReaderCanvas(paneIndex) ? renderPane(paneAt(paneIndex), paneIndex) : renderParsePane(canvasAt(paneIndex), paneIndex);
   const resizer = (kind) => '<div class="pane-resizer ' + kind + '" data-pane-resizer="' + kind + '" title="Drag to resize reader panels"></div>';
-  const gridContents = state.layout === 1
+  const gridContents = mobileWordStudyOpen
+    ? renderPanel(activeReaderIndex())
+    : state.layout === 1
     ? renderPanel(0) + resizer("single")
     : state.layout === 2
       ? renderPanel(0) + resizer("split") + renderPanel(1)
       : renderPanel(0) + resizer("triple-first") + renderPanel(1) + resizer("triple-second") + renderPanel(2);
   const gridStyle = '--single-panel-width:' + state.singlePanelWidth + 'px;--left-panel-width:' + Math.round(state.twoPanelRatio * 1000) / 10 + '%;--triple-first-track:' + tripleTrackWeight(state.triplePanelFirstRatio) + ';--triple-second-track:' + tripleTrackWeight(state.triplePanelSecondRatio) + ';';
   app.innerHTML = '<main class="reader-shell">' + renderWorkspaceHeader() + renderReferenceBrowser() +
-    '<div class="desk ' + (state.studyOpen && !studyDrawer ? "study-open" : "") + (studyDrawer ? " study-drawer-open" : "") + (studyEntrance ? " study-entering" : "") + '"><section class="reading-area"><div class="pane-grid ' + paneGrid + (visibleParseIndex() !== undefined ? " has-parse" : "") + '" style="' + gridStyle + '">' +
+    '<div class="desk ' + (state.studyOpen && !studyDrawer ? "study-open" : "") + (studyDrawer ? " study-drawer-open" : "") + (studyEntrance ? " study-entering" : "") + '"><section class="reading-area"><div class="pane-grid ' + paneGrid + (mobileWordStudyOpen || visibleParseIndex() !== undefined ? " has-parse" : "") + '" style="' + gridStyle + '">' +
       gridContents +
-    "</div></section>" + (state.studyOpen ? renderStudyPanel(studyDrawer) : "") + "</div></main>" + renderSettings() + renderPopover() + '<div class="reader-tooltip" id="reader-tooltip" role="tooltip"></div>';
+    "</div></section>" + (state.studyOpen ? renderStudyPanel(studyDrawer) : "") + (mobileWordStudyOpen ? renderMobileParseSheet(mobileParseIndex) : "") + "</div></main>" + renderSettings() + renderPopover() + '<div class="reader-tooltip" id="reader-tooltip" role="tooltip"></div>';
   if (window.lucide) window.lucide.createIcons();
   syncMobileReaderFrame();
   document.querySelectorAll(".reader-pane[data-activate-pane] .verse-list").forEach((list) => {
@@ -1208,6 +1226,10 @@ function newCanvasTab(paneIndex = state.activePane) {
 }
 
 function setLayout(layout) {
+  if (isPhoneViewport()) {
+    showToast("Multiple reader panels are available on tablet and desktop.");
+    return;
+  }
   const nextLayout = Math.min(3, Math.max(1, layout));
   if (state.layout === 2 && nextLayout === 3 && canvasAt(1).mode === "parse") {
     const parser = canvasAt(1);
@@ -1336,6 +1358,11 @@ function parseReturnState() {
 }
 
 function reserveParsingPane() {
+  if (isPhoneViewport()) {
+    const existingParse = activeParseIndex();
+    if (existingParse !== -1) return existingParse;
+    return state.canvases.findIndex((canvas, index) => index !== state.activePane && canvas.mode === "reader");
+  }
   let parseIndex = visiblePaneIndexes().find((paneIndex) => canvasAt(paneIndex).mode === "parse");
   if (parseIndex === undefined) {
     if (state.layout === 1) {
@@ -1358,10 +1385,9 @@ function openParsingSurface(data) {
   if (canvas.mode !== "parse") canvas.parseReturn = previousState;
   canvas.mode = "parse";
   canvas.parseData = data;
-  if (state.layout === 2) state.twoPanelRatio = .66;
   moveParseToRightmost();
   state.panelSettings = null;
-  state.mobilePane = state.layout - 1;
+  if (!isPhoneViewport()) state.mobilePane = state.layout - 1;
   persist();
   render();
 }
