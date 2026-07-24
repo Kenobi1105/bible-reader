@@ -686,6 +686,25 @@ body.dark .reveal-title { border-color: var(--border); }
 .parse-parsing-section { padding: 23px 0 21px; border-bottom: 1px solid var(--border); }
 .parse-terms { display: flex; flex-wrap: wrap; gap: 0 9px; margin: 10px 0 0; color: var(--ink); font-family: "Source Serif 4", Georgia, serif; font-size: 19px; line-height: 1.45; }
 .parse-terms b { color: var(--accent); font-family: "Source Serif 4", Georgia, serif; font-weight: 700; }
+.occurrence-section { padding: 21px 0; border-bottom: 1px solid var(--border); }
+.occurrence-heading { display: flex; align-items: start; justify-content: space-between; gap: 14px; }
+.occurrence-heading h2 { margin: 0; color: var(--muted); font-family: "Source Serif 4", Georgia, serif; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.occurrence-heading p { margin: 7px 0 0; color: var(--ink); font-family: "Source Serif 4", Georgia, serif; font-size: 15px; line-height: 1.45; }
+.occurrence-heading p strong { color: var(--plum); font-weight: 700; }
+.occurrence-progress { height: 3px; margin-top: 16px; overflow: hidden; background: rgba(73,53,72,.12); }
+.occurrence-progress span { display: block; height: 100%; background: var(--gold); transition: width .2s ease; }
+.occurrence-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; margin: 16px 0 0; padding: 0; list-style: none; border-top: 1px solid rgba(73,53,72,.12); }
+.occurrence-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; border-bottom: 1px solid rgba(73,53,72,.12); }
+.occurrence-list li:nth-child(odd) { border-inline-end: 1px solid rgba(73,53,72,.12); }
+.occurrence-list button { min-width: 0; padding: 8px 10px; border: 0; background: transparent; color: var(--ink); font-family: "Source Serif 4", Georgia, serif; font-size: 13px; text-align: start; cursor: pointer; }
+.occurrence-list button:hover { color: var(--plum); text-decoration: underline; text-underline-offset: 2px; }
+.occurrence-list span { padding-inline-end: 10px; color: var(--muted); font-size: 11px; }
+.occurrence-more { margin-top: 14px; }
+.occurrence-empty { margin: 14px 0 0; color: var(--muted); font-size: 13px; }
+@media (max-width: 460px) {
+  .occurrence-list { grid-template-columns: 1fr; }
+  .occurrence-list li:nth-child(odd) { border-inline-end: 0; }
+}
 .parse-metadata { display: flex; flex-wrap: wrap; gap: 4px 14px; padding-top: 14px; color: var(--muted); font-family: "Source Serif 4", Georgia, serif; font-size: 10px; line-height: 1.45; }
 .parse-metadata span + span::before { margin-inline-end: 14px; color: var(--accent); content: "·"; }
 .parse-empty { padding: 28px 20px; color: var(--muted); font-size: 13px; }

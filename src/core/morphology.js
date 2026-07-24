@@ -206,6 +206,19 @@ function cleanGreekForLookup(value) {
     .trim();
 }
 
+function occurrenceKey(id, word) {
+  if (id === "WLC") {
+    return String(word?.lemma || "").split("/").reverse().map((part) => strongsId(part, "H")).find(Boolean)
+      || String(word?.lemma || word?.surface || "").replace(/[^\p{L}\p{M}]/gu, "");
+  }
+  return normalizeGreek(cleanGreekForLookup(word?.lemma || word?.surface));
+}
+
+function occurrenceReference(book, verseReference) {
+  const [chapter, verse] = verseReference.split(":");
+  return { book, chapter: Number(chapter), verse: Number(verse), reference: book + " " + chapter + ":" + verse };
+}
+
 function parseWlc(source) {
   const document = new DOMParser().parseFromString(source, "application/xml");
   if (document.querySelector("parsererror")) throw new Error("The Hebrew morphology file could not be read.");
@@ -235,7 +248,7 @@ export function morphologySourceLabel(id) {
   return id === "WLC" ? "Open Scriptures Hebrew Bible morphology" : "MorphGNT morphology";
 }
 
-export async function loadMorphologyBook(id, book) {
+export async function loadMorphologyBook(id, book, { enrich = true } = {}) {
   const code = id === "WLC" ? WLC_BOOKS[book] : SBLGNT_BOOKS[book];
   if (!code || !isMorphologyTranslation(id)) throw new Error("Parsing is not available for this book.");
   const key = CACHE_PREFIX + id + "|" + book;
@@ -250,9 +263,47 @@ export async function loadMorphologyBook(id, book) {
     const source = await response.text();
     result = { source: morphologySourceLabel(id), verses: id === "WLC" ? parseWlc(source) : parseSblgnt(source) };
   }
-  if (result.lexiconVersion !== 1) {
+  if (enrich && result.lexiconVersion !== 1) {
     try { await enrichLexicalData(id, result); } catch { /* Keep parsing available if lexical data is temporarily unavailable. */ }
   }
   await saveCachedChapter(key, result);
   return result;
+}
+
+export async function findWordOccurrences(id, selectedWord, onProgress = () => {}) {
+  const target = occurrenceKey(id, selectedWord);
+  const books = Object.keys(id === "WLC" ? WLC_BOOKS : SBLGNT_BOOKS);
+  if (!target || !books.length || !isMorphologyTranslation(id)) throw new Error("Occurrences are not available for this word.");
+
+  const scans = new Array(books.length);
+  let nextBook = 0;
+  let complete = 0;
+  const worker = async () => {
+    while (nextBook < books.length) {
+      const index = nextBook++;
+      const book = books[index];
+      const data = await loadMorphologyBook(id, book, { enrich: false });
+      scans[index] = { book, verses: data.verses };
+      complete += 1;
+      onProgress({ complete, total: books.length, book });
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, books.length) }, worker));
+
+  const references = [];
+  let count = 0;
+  scans.forEach(({ book, verses }) => {
+    Object.entries(verses).forEach(([verseReference, words]) => {
+      const matches = words.filter((word) => occurrenceKey(id, word) === target).length;
+      if (!matches) return;
+      count += matches;
+      references.push({ ...occurrenceReference(book, verseReference), count: matches });
+    });
+  });
+  return {
+    count,
+    references,
+    target,
+    corpus: id === "WLC" ? "Hebrew Bible" : "Greek New Testament"
+  };
 }

@@ -1,7 +1,7 @@
 import { BOOKS, chapterCount, displayReference, isOldTestament, moveChapter, parseReference } from "../core/references.js";
 import { TRANSLATIONS, getChapter } from "../core/bible-sources.js?v=5";
 import { downloadFile, loadCachedChapter, loadState, removeCachedChapter, saveCachedChapter, saveState } from "../core/storage.js?v=3";
-import { isMorphologyTranslation, loadMorphologyBook, morphologySourceLabel } from "../core/morphology.js";
+import { findWordOccurrences, isMorphologyTranslation, loadMorphologyBook, morphologySourceLabel } from "../core/morphology.js?v=2";
 import { getSblApparatusUnit, getSblApparatusUnits, loadSblApparatus } from "../core/sbl-apparatus.js?v=3";
 
 const app = document.querySelector("#app");
@@ -694,6 +694,30 @@ function parseMetadataMarkup(data, lexicalCredit) {
   return metadata.map((item) => '<span>' + escapeHtml(item) + '</span>').join("");
 }
 
+function occurrenceMarkup(data, paneIndex) {
+  const occurrences = data.occurrences;
+  const corpus = data.translation === "WLC" ? "Hebrew Bible" : "Greek New Testament";
+  if (!occurrences) {
+    return '<section class="occurrence-section" dir="ltr"><div class="occurrence-heading"><div><h2>Occurrences</h2><p>Search this lemma across the ' + corpus + '.</p></div><button class="button small" data-action="load-occurrences" data-pane-index="' + paneIndex + '">Find occurrences</button></div></section>';
+  }
+  if (occurrences.status === "loading") {
+    const progress = occurrences.progress || { complete: 0, total: 0 };
+    return '<section class="occurrence-section occurrence-loading" dir="ltr" aria-live="polite"><div class="occurrence-heading"><div><h2>Occurrences</h2><p>Searching the ' + corpus + '...</p></div><span>' + progress.complete + " / " + progress.total + '</span></div><div class="occurrence-progress"><span style="width:' + (progress.total ? Math.round((progress.complete / progress.total) * 100) : 0) + '%"></span></div></section>';
+  }
+  if (occurrences.status === "error") {
+    return '<section class="occurrence-section occurrence-error" dir="ltr"><div class="occurrence-heading"><div><h2>Occurrences</h2><p>' + escapeHtml(occurrences.message || "The search could not finish.") + '</p></div><button class="button small" data-action="load-occurrences" data-pane-index="' + paneIndex + '">Try again</button></div></section>';
+  }
+  const result = occurrences.result;
+  const limit = occurrences.showAll ? result.references.length : 60;
+  const references = result.references.slice(0, limit).map((item) =>
+    '<li><button data-action="go-occurrence" data-pane-index="' + paneIndex + '" data-occurrence-reference="' + escapeHtml(item.reference) + '">' + escapeHtml(item.reference) + '</button>' + (item.count > 1 ? '<span>' + item.count + 'x</span>' : "") + "</li>"
+  ).join("");
+  return '<section class="occurrence-section" dir="ltr"><div class="occurrence-heading"><div><h2>Occurrences</h2><p><strong>' + result.count + '</strong> word occurrences in <strong>' + result.references.length + '</strong> verse' + (result.references.length === 1 ? "" : "s") + ' across the ' + result.corpus + '.</p></div></div>' +
+    (references ? '<ol class="occurrence-list">' + references + "</ol>" : '<p class="occurrence-empty">No matching occurrences were found.</p>') +
+    (result.references.length > limit ? '<button class="button small occurrence-more" data-action="show-all-occurrences" data-pane-index="' + paneIndex + '">Show all ' + result.references.length + ' verses</button>' : "") +
+  "</section>";
+}
+
 function renderParsePane(canvas, paneIndex) {
   const data = canvas.parseData;
   const translation = TRANSLATIONS[data?.translation] || {};
@@ -713,7 +737,7 @@ function renderParsePane(canvas, paneIndex) {
   if (activeTab === "variant") return '<article class="' + classes + '">' + header + '<div class="parse-content parse-variant-content">' + variantDetailsMarkup(unit) + '</div></article>';
   const lexicalCredit = data.word.lexical ? " Lexical glosses: Open Scriptures Strong's Dictionaries." : "";
   const lexical = data.word.lexical || {};
-  return '<article class="' + classes + '">' + header + '<div class="parse-content parse-content-' + escapeHtml(data.translation.toLowerCase()) + '" dir="' + direction + '"><section class="parse-word-hero"><p class="parse-reference">' + escapeHtml(data.reference) + '</p><div class="parse-word">' + escapeHtml(cleanParserDisplay(data.word.surface)) + '</div></section><section class="parse-lexical" aria-label="Lexical information"><dl class="parse-details">' + parseLexicalMarkup(data) + '</dl></section><section class="parse-emphasis parse-gloss-section" aria-labelledby="parse-gloss-' + paneIndex + '"><h2 id="parse-gloss-' + paneIndex + '">Gloss</h2><p>' + escapeHtml(lexical.gloss || "Not listed") + '</p></section><section class="parse-parsing-section" aria-labelledby="parse-parsing-' + paneIndex + '"><h2 id="parse-parsing-' + paneIndex + '">Parsing</h2><p class="parse-terms">' + parsingTerms(data.word.description) + '</p></section><footer class="parse-metadata">' + parseMetadataMarkup(data, lexicalCredit) + '</footer></div></article>';
+  return '<article class="' + classes + '">' + header + '<div class="parse-content parse-content-' + escapeHtml(data.translation.toLowerCase()) + '" dir="' + direction + '"><section class="parse-word-hero"><p class="parse-reference">' + escapeHtml(data.reference) + '</p><div class="parse-word">' + escapeHtml(cleanParserDisplay(data.word.surface)) + '</div></section><section class="parse-lexical" aria-label="Lexical information"><dl class="parse-details">' + parseLexicalMarkup(data) + '</dl></section><section class="parse-emphasis parse-gloss-section" aria-labelledby="parse-gloss-' + paneIndex + '"><h2 id="parse-gloss-' + paneIndex + '">Gloss</h2><p>' + escapeHtml(lexical.gloss || "Not listed") + '</p></section><section class="parse-parsing-section" aria-labelledby="parse-parsing-' + paneIndex + '"><h2 id="parse-parsing-' + paneIndex + '">Parsing</h2><p class="parse-terms">' + parsingTerms(data.word.description) + '</p></section>' + occurrenceMarkup(data, paneIndex) + '<footer class="parse-metadata">' + parseMetadataMarkup(data, lexicalCredit) + '</footer></div></article>';
 }
 
 function htmlToMarkdown(html) {
@@ -1327,6 +1351,13 @@ function closeParsingPanel(paneIndex) {
   loadVisiblePanes();
 }
 
+function openOccurrenceReference(paneIndex, reference) {
+  const parsed = parseReference(reference);
+  if (!parsed) return;
+  closeParsingPanel(paneIndex);
+  changePaneReference(state.activePane, parsed);
+}
+
 function syncNote() {
   const note = currentNote();
   const editor = document.querySelector("[data-note-editor]");
@@ -1581,6 +1612,36 @@ app.addEventListener("click", async (event) => {
     canvas.parseData.studyTab = actionTarget.dataset.wordStudyTab;
     persist(); render(); return;
   }
+  if (action === "load-occurrences") {
+    const paneIndex = Number(actionTarget.dataset.paneIndex);
+    const canvas = canvasAt(paneIndex);
+    const data = canvas?.parseData;
+    if (!data?.word || data.occurrences?.status === "loading") return;
+    data.occurrences = { status: "loading", progress: { complete: 0, total: 0 } };
+    render();
+    try {
+      const result = await findWordOccurrences(data.translation, data.word, (progress) => {
+        if (canvasAt(paneIndex)?.parseData !== data) return;
+        data.occurrences = { status: "loading", progress };
+        render();
+      });
+      if (canvasAt(paneIndex)?.parseData !== data) return;
+      data.occurrences = { status: "ready", result, showAll: false };
+    } catch (error) {
+      if (canvasAt(paneIndex)?.parseData !== data) return;
+      data.occurrences = { status: "error", message: error.message };
+    }
+    render();
+    return;
+  }
+  if (action === "show-all-occurrences") {
+    const canvas = canvasAt(Number(actionTarget.dataset.paneIndex));
+    if (canvas?.parseData?.occurrences?.status !== "ready") return;
+    canvas.parseData.occurrences.showAll = true;
+    render();
+    return;
+  }
+  if (action === "go-occurrence") return openOccurrenceReference(Number(actionTarget.dataset.paneIndex), actionTarget.dataset.occurrenceReference);
   if (action === "settings") return openSettings(actionTarget);
   if (action === "dark-mode") { state.dark = !state.dark; persist(); render(); return; }
   if (action === "cycle-compare-cuv") {
